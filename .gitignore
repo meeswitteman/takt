@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite
+
+# Settings / secrets
+takt-desktop/settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Claude Code
+.claude/
