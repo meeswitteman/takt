@@ -2,9 +2,9 @@ from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
 from fastapi import HTTPException
-from app.models.item import Item, ItemContext, TodoLog
-from app.models.context import Context
-from app.schemas.item import ItemCreate, ItemUpdate, ItemMoveRequest, ItemTodoRequest, ItemRecurringRequest, ItemVariationRequest, ItemDoneRequest
+from takt_backend.models.item import Item, ItemContext, TodoLog
+from takt_backend.models.context import Context
+from takt_backend.schemas.item import ItemCreate, ItemUpdate, ItemMoveRequest, ItemTodoRequest, ItemRecurringRequest, ItemVariationRequest, ItemDoneRequest
 
 
 def _load_item(db: Session, item_id: int) -> Item:

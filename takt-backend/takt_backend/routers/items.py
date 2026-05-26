@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.schemas.item import (
+from takt_backend.database import get_db
+from takt_backend.schemas.item import (
     ItemCreate, ItemUpdate, ItemOut, ItemMoveRequest,
     ItemTodoRequest, ItemRecurringRequest, ItemVariationRequest, ItemDoneRequest,
 )
-from app.services import item_service
+from takt_backend.services import item_service
 
 router = APIRouter(prefix="/api/v1/items", tags=["items"])
 

@@ -2,9 +2,9 @@ import random
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session, selectinload
 from fastapi import HTTPException
-from app.models.item import Item, ItemContext, TodoLog
-from app.models.context import Context
-from app.services.item_service import get_item, _enrich, _build_breadcrumb
+from takt_backend.models.item import Item, ItemContext, TodoLog
+from takt_backend.models.context import Context
+from takt_backend.services.item_service import get_item, _enrich, _build_breadcrumb
 
 
 def _is_due(item: Item) -> bool:

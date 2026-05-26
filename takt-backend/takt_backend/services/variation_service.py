@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from app.models.variation import VariationList, VariationEntry
-from app.schemas.variation import VariationListCreate, VariationEntriesUpdate
+from takt_backend.models.variation import VariationList, VariationEntry
+from takt_backend.schemas.variation import VariationListCreate, VariationEntriesUpdate
 
 
 def list_variations(db: Session) -> list[VariationList]:

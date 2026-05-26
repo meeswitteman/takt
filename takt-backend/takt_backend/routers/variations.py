@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.schemas.variation import VariationListCreate, VariationListOut, VariationEntriesUpdate
-from app.services import variation_service
+from takt_backend.database import get_db
+from takt_backend.schemas.variation import VariationListCreate, VariationListOut, VariationEntriesUpdate
+from takt_backend.services import variation_service
 
 router = APIRouter(prefix="/api/v1/variations", tags=["variations"])
 

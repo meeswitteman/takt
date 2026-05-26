@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from pathlib import Path
-from app.config import settings
+from takt_backend.config import settings
 
 
 def get_engine():

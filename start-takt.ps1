@@ -32,7 +32,7 @@ if ($running) {
 
     # Open backend in apart venster (zichtbaar, maar minimaliseerbaar)
     Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/k title Takt Backend && cd /d `"$backendDir`" && `"$uvicorn`" app.main:app --host 0.0.0.0 --port 8080" `
+        -ArgumentList "/k title Takt Backend && cd /d `"$backendDir`" && `"$uvicorn`" takt_backend.main:app --host 0.0.0.0 --port 8080" `
         -WindowStyle Minimized
 
     # Wachten tot backend beschikbaar is (max 15 seconden)

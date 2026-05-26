@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
-from app.models.context import Context
-from app.schemas.context import ContextCreate, ContextUpdate
+from takt_backend.models.context import Context
+from takt_backend.schemas.context import ContextCreate, ContextUpdate
 
 
 def list_contexts(db: Session) -> list[Context]:

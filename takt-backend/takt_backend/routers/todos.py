@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.schemas.item import ItemOut, TodoDoneRequest, TodoLogOut
-from app.services import todo_service
+from takt_backend.database import get_db
+from takt_backend.schemas.item import ItemOut, TodoDoneRequest, TodoLogOut
+from takt_backend.services import todo_service
 
 router = APIRouter(prefix="/api/v1/todos", tags=["todos"])
 

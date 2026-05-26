@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.schemas.context import ContextCreate, ContextUpdate, ContextOut
-from app.services import context_service
+from takt_backend.database import get_db
+from takt_backend.schemas.context import ContextCreate, ContextUpdate, ContextOut
+from takt_backend.services import context_service
 
 router = APIRouter(prefix="/api/v1/contexts", tags=["contexts"])
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 from pydantic import BaseModel
-from app.schemas.context import ContextOut
+from takt_backend.schemas.context import ContextOut
 
 
 class ItemCreate(BaseModel):

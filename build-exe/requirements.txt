@@ -1,0 +1,8 @@
+PyQt6
+httpx
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+pyinstaller

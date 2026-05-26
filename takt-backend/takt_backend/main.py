@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from app.config import settings
-from app.database import engine, Base
-from app.routers import items, contexts, todos, variations
-import app.models  # noqa: F401 — ensures all models are registered before create_all
+from takt_backend.config import settings
+from takt_backend.database import engine, Base
+from takt_backend.routers import items, contexts, todos, variations
+import takt_backend.models  # noqa: F401 — ensures all models are registered before create_all
 
 Base.metadata.create_all(bind=engine)
 
