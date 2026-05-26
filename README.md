@@ -19,24 +19,33 @@ takt/
 - Items aanmaken, hernoemen, verwijderen
 - Verplaatsen via Alt+↑/↓ (omhoog/omlaag), Tab (indenteren), Shift+Tab (uitdenten)
 - Items markeren als **todo** (●) of **gedaan** ([v]) — markeert recursief alle subitems
+- Herhaalbare items tonen het interval achter de naam (bijv. `Taak  - wekelijks`)
 - Dubbelklik op een leaf-item opent de editor
 
 ### Item-editor (dubbelklik)
-- Naam en bron (URL of bestandspad) wijzigen
+- Naam, omschrijving en starttip wijzigen
+- Bron instellen (URL of bestandspad) — klikbaar in de todo-kaart
 - Status: gedaan / todo
-- Context toewijzen
+- Context toewijzen (meerdere mogelijk)
 - Recurring instellen met interval
 - Variatielijst koppelen
 
 ### Todo-lijst
-- Toont alle actieve todo-items gesorteerd op langst-geleden-gedaan
+- Toont alle actieve todo-items gesorteerd op langst-geleden-gedaan (nooit gedaan bovenaan)
 - Breadcrumb toont het pad vanuit de projectboom (bijv. `Project › Subproject`)
-- Herhaalbare items tonen ↺ en verschijnen na afvinken onderaan de lijst
-- Afvinken met optionele notitie
+- Herhaalbare items tonen het interval achter de naam (bijv. `Taak  - dagelijks`)
+- Afvinken met optionele notitie; recurring items verschijnen direct weer onderaan
+- Recurring items blijven in de projectboom als niet-gedaan staan
 - Volgorde aanpassen via drag & drop of Alt+↑/↓
+
+### Geschiedenis
+- Chronologisch overzicht van alle afgevinkelde items (meest recent bovenaan)
+- Toont breadcrumb, titel, variatiewaarde en notitie per afvinksessie
+- Tijdstip zichtbaar rechts in elke kaart
 
 ### Globaal filter
 - Filterbaar op een of meer contexten en/of rootprojecten
+- Werkt tegelijk op de projectboom én de todo-lijst
 - Filter wordt opgeslagen en na herstart hersteld
 - Bij één actief rootproject worden de directe subitems automatisch uitgeklapt
 
@@ -48,7 +57,7 @@ takt/
 ### Variaties
 - Variatielijsten beheren (meerdere waarden per lijst)
 - Keuzemethode: lineair (volgorde) of willekeurig
-- Actieve variatie wordt getoond in de todo-kaart
+- Actieve variatie wordt getoond in de todo-kaart en de geschiedenis
 
 ### Instellingen
 - Lettertype en -grootte
@@ -105,6 +114,14 @@ cd takt-desktop
 python -m app.main
 ```
 
+### Backend stoppen
+
+Sluit het aparte backend-venster, of via PowerShell:
+
+```powershell
+Stop-Process -Name python
+```
+
 ## Configuratie
 
 Instellingen worden opgeslagen in `%APPDATA%\takt\settings.json`:
@@ -131,6 +148,15 @@ De backend gebruikt standaard `%APPDATA%\takt\takt.db`. Een alternatieve databas
 | `weekly` | Eenmaal per 7 dagen |
 | `weekday:0` t/m `weekday:6` | Specifieke weekdag (0 = maandag) |
 | `monthly_first` | Eerste van elke maand |
+
+## Navigatie (menubar)
+
+| Menu-item | Weergave |
+|---|---|
+| Project | Projectboom |
+| Todo | Todo-lijst |
+| Filter | Globaal filter |
+| Geschiedenis | Afvinkhistorie |
 
 ## Sneltoetsen (projectboom)
 

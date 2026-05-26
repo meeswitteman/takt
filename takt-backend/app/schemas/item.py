@@ -78,6 +78,9 @@ class TodoDoneRequest(BaseModel):
 
 class TodoLogOut(BaseModel):
     id: int
+    item_id: int
+    item_title: str = ""
+    breadcrumb: list[str] = []
     action: str
     note: str | None
     variation_value: str | None

@@ -215,6 +215,8 @@ class ItemEditDialog(QDialog):
 
         # Uitvoerwaarden
         self.title           = data["title"]
+        self.description     = data.get("description") or ""
+        self.start_note      = data.get("start_note") or ""
         self.src             = data.get("src") or ""
         self.is_done         = data.get("is_done", False)
         self.is_todo         = data.get("is_todo", False)
@@ -231,6 +233,17 @@ class ItemEditDialog(QDialog):
         self._title_edit = QLineEdit(data["title"])
         self._title_edit.setMinimumWidth(280)
         form.addRow("Naam:", self._title_edit)
+
+        # Omschrijving
+        self._desc_edit = QTextEdit(data.get("description") or "")
+        self._desc_edit.setPlaceholderText("Optionele omschrijving")
+        self._desc_edit.setMaximumHeight(72)
+        form.addRow("Omschrijving:", self._desc_edit)
+
+        # Starttip
+        self._start_note_edit = QLineEdit(data.get("start_note") or "")
+        self._start_note_edit.setPlaceholderText("Korte instructie bij aanvang")
+        form.addRow("Starttip:", self._start_note_edit)
 
         # Bron
         self._src_edit = QLineEdit(data.get("src") or "")
@@ -311,6 +324,8 @@ class ItemEditDialog(QDialog):
         if not t:
             return
         self.title          = t
+        self.description    = self._desc_edit.toPlainText().strip() or None
+        self.start_note     = self._start_note_edit.text().strip() or None
         self.src            = self._src_edit.text().strip() or None
         self.is_done        = self._done_cb.isChecked()
         self.is_todo        = self._todo_cb.isChecked()

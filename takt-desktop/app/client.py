@@ -109,6 +109,9 @@ def mark_done(item_id: int, note: str | None = None):
 def get_history(item_id: int):
     return _get(f"/api/v1/todos/{item_id}/history")
 
+def get_all_history():
+    return _get("/api/v1/todos/history")
+
 def get_contexts():
     return _get("/api/v1/contexts")
 

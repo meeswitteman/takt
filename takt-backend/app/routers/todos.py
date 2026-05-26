@@ -21,6 +21,11 @@ def mark_done(item_id: int, data: TodoDoneRequest, db: Session = Depends(get_db)
     return todo_service.mark_done(db, item_id, data.note)
 
 
+@router.get("/history", response_model=list[TodoLogOut])
+def list_history(db: Session = Depends(get_db)):
+    return todo_service.list_history(db)
+
+
 @router.get("/{item_id}/history", response_model=list[TodoLogOut])
 def get_history(item_id: int, db: Session = Depends(get_db)):
     return todo_service.get_history(db, item_id)

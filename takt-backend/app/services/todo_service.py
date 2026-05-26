@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session, selectinload
 from fastapi import HTTPException
 from app.models.item import Item, ItemContext, TodoLog
 from app.models.context import Context
-from app.services.item_service import get_item, _enrich
+from app.services.item_service import get_item, _enrich, _build_breadcrumb
 
 
 def _is_due(item: Item) -> bool:
@@ -121,13 +121,39 @@ def mark_done(db: Session, item_id: int, note: str | None) -> Item:
 
     item.last_done_at = datetime.utcnow()
     item.updated_at = datetime.utcnow()
-    item.is_done = True
 
-    if not item.is_recurring:
+    if item.is_recurring:
+        item.is_done = False
+    else:
+        item.is_done = True
         item.is_todo = False
 
     db.commit()
     return get_item(db, item_id)
+
+
+def list_history(db: Session, limit: int = 500) -> list[dict]:
+    logs = (
+        db.query(TodoLog)
+        .order_by(TodoLog.completed_at.desc())
+        .limit(limit)
+        .all()
+    )
+    result = []
+    for log in logs:
+        item = db.get(Item, log.item_id)
+        breadcrumb = _build_breadcrumb(db, item) if item else []
+        result.append({
+            "id": log.id,
+            "item_id": log.item_id,
+            "item_title": item.title if item else "(verwijderd)",
+            "breadcrumb": breadcrumb,
+            "action": log.action,
+            "note": log.note,
+            "variation_value": log.variation_value,
+            "completed_at": log.completed_at,
+        })
+    return result
 
 
 def get_history(db: Session, item_id: int) -> list[TodoLog]:

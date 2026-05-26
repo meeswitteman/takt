@@ -18,6 +18,23 @@ from app.dialogs import (
 
 INDENT = 28   # pixels per niveau
 
+_INTERVAL_LABELS = {
+    "direct":        "direct",
+    "daily":         "dagelijks",
+    "weekly":        "wekelijks",
+    "weekday:0":     "maandag",
+    "weekday:1":     "dinsdag",
+    "weekday:2":     "woensdag",
+    "weekday:3":     "donderdag",
+    "weekday:4":     "vrijdag",
+    "weekday:5":     "zaterdag",
+    "weekday:6":     "zondag",
+    "monthly_first": "1e van de maand",
+}
+
+def _interval_label(interval: str | None) -> str:
+    return _INTERVAL_LABELS.get(interval or "", interval or "")
+
 
 class ProjectsTab(QWidget):
     def __init__(self, parent=None):
@@ -111,10 +128,10 @@ class ProjectsTab(QWidget):
         markers = []
         if data.get("is_todo"):
             markers.append("●")
-        if data.get("is_recurring"):
-            markers.append("↺")
         if markers:
             title = " ".join(markers) + "  " + title
+        if data.get("is_recurring"):
+            title += "  - " + _interval_label(data.get("recurring_interval"))
         if data.get("is_done"):
             title = title + "  [v]"
         node.setText(0, title)
@@ -395,8 +412,14 @@ class ProjectsTab(QWidget):
         try:
             item_id = node.data(0, ITEM_ID_ROLE)
             changed = False
-            if dlg.title != data["title"] or (dlg.src or None) != data.get("src"):
-                client.update_item(item_id, title=dlg.title, src=dlg.src or None)
+            if (dlg.title != data["title"]
+                    or (dlg.description or None) != data.get("description")
+                    or (dlg.start_note or None) != data.get("start_note")
+                    or (dlg.src or None) != data.get("src")):
+                client.update_item(item_id, title=dlg.title,
+                                   description=dlg.description or None,
+                                   start_note=dlg.start_note or None,
+                                   src=dlg.src or None)
                 changed = True
             if dlg.is_done != data.get("is_done", False):
                 client.set_done(item_id, dlg.is_done)

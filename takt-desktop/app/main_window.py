@@ -5,6 +5,7 @@ from PyQt6.QtGui import QAction
 from app.projects_tab import ProjectsTab
 from app.todos_tab import TodosTab
 from app.filter_tab import FilterTab
+from app.history_tab import HistoryTab
 from app import client, config as cfg
 from app import theme as theme_module
 
@@ -26,11 +27,13 @@ class MainWindow(QMainWindow):
             initial_ctx_ids=self._settings.get("filter_context_ids", []),
             initial_root_ids=self._settings.get("filter_root_ids", []),
         )
+        self._history = HistoryTab()
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._projects)   # 0
         self._stack.addWidget(self._todos)      # 1
         self._stack.addWidget(self._filter_tab) # 2
+        self._stack.addWidget(self._history)    # 3
         self.setCentralWidget(self._stack)
 
         self._filter_tab.filter_changed.connect(self._apply_global_filter)
@@ -71,6 +74,11 @@ class MainWindow(QMainWindow):
         self._act_filter.setCheckable(True)
         self._act_filter.triggered.connect(lambda: self._show_view(2))
         mb.addAction(self._act_filter)
+
+        self._act_history = QAction("Geschiedenis", self)
+        self._act_history.setCheckable(True)
+        self._act_history.triggered.connect(lambda: self._show_view(3))
+        mb.addAction(self._act_history)
 
         # Beheer
         beheer = mb.addMenu("Beheer")
@@ -136,8 +144,11 @@ class MainWindow(QMainWindow):
         self._act_project.setChecked(index == 0)
         self._act_todo.setChecked(index == 1)
         self._act_filter.setChecked(index == 2)
+        self._act_history.setChecked(index == 3)
         if index == 1:
             self._todos.refresh()
+        elif index == 3:
+            self._history.refresh()
 
     # ------------------------------------------------------------------
     # Filter

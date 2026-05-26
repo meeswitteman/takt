@@ -10,6 +10,24 @@ from app import client
 from app.dialogs import DoneDialog, show_error
 
 
+_INTERVAL_LABELS = {
+    "direct":        "direct",
+    "daily":         "dagelijks",
+    "weekly":        "wekelijks",
+    "weekday:0":     "maandag",
+    "weekday:1":     "dinsdag",
+    "weekday:2":     "woensdag",
+    "weekday:3":     "donderdag",
+    "weekday:4":     "vrijdag",
+    "weekday:5":     "zaterdag",
+    "weekday:6":     "zondag",
+    "monthly_first": "1e van de maand",
+}
+
+def _interval_label(interval: str | None) -> str:
+    return _INTERVAL_LABELS.get(interval or "", interval or "")
+
+
 class ContextChip(QLabel):
     def __init__(self, name: str, color: str, parent=None):
         super().__init__(f" {name} ", parent)
@@ -45,7 +63,7 @@ class TodoCard(QFrame):
 
         title = data["title"]
         if data.get("is_recurring"):
-            title += "  ↺"
+            title += "  - " + _interval_label(data.get("recurring_interval"))
         title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setWordWrap(True)
         info.addWidget(title_lbl)
