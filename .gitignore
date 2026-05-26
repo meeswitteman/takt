@@ -22,5 +22,9 @@ Thumbs.db
 .vscode/
 *.code-workspace
 
+# PyInstaller build output
+build-exe/build/
+build-exe/dist/
+
 # Claude Code
 .claude/
