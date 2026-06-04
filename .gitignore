@@ -4,14 +4,29 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+env/
 *.egg-info/
+*.egg
+
+# Test / tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
 
 # Database
 *.db
 *.sqlite
+*.sqlite3
 
 # Settings / secrets
 takt-desktop/settings.json
+.env
+*.env
 
 # OS
 .DS_Store
