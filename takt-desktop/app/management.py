@@ -291,11 +291,11 @@ class VariationsDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class SettingsDialog(QDialog):
-    def __init__(self, on_theme_change=None, on_font_change=None, on_spacing_change=None, parent=None):
+    def __init__(self, on_palette_change=None, on_font_change=None, on_spacing_change=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Instellingen")
         self.setMinimumWidth(400)
-        self._on_theme_change = on_theme_change
+        self._on_palette_change = on_palette_change
         self._on_font_change = on_font_change
         self._on_spacing_change = on_spacing_change
         self._settings = cfg.load()
@@ -309,13 +309,15 @@ class SettingsDialog(QDialog):
         self._url_edit = QLineEdit(self._settings.get("api_url", "http://127.0.0.1:8080"))
         form.addRow("Backend URL:", self._url_edit)
 
-        # Thema
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItem("Donker", "dark")
-        self._theme_combo.addItem("Licht", "light")
-        cur = self._settings.get("theme", "dark")
-        self._theme_combo.setCurrentIndex(0 if cur == "dark" else 1)
-        form.addRow("Thema:", self._theme_combo)
+        # Kleurenpalet
+        from app import theme as theme_module
+        self._palette_combo = QComboBox()
+        for name in theme_module.PALETTE_NAMES:
+            self._palette_combo.addItem(name, name)
+        cur_palette = theme_module.palette_from_settings(self._settings)
+        idx = self._palette_combo.findData(cur_palette)
+        self._palette_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        form.addRow("Kleurenpalet:", self._palette_combo)
 
         # Standaard context
         self._ctx_combo = QComboBox()
@@ -362,8 +364,9 @@ class SettingsDialog(QDialog):
 
     def _save(self):
         new_settings = {
+            **self._settings,
             "api_url": self._url_edit.text().strip().rstrip("/"),
-            "theme": self._theme_combo.currentData(),
+            "palette": self._palette_combo.currentData(),
             "default_context": self._ctx_combo.currentData(),
             "font_family": self._font_combo.currentFont().family(),
             "font_size": self._font_size.value(),
@@ -371,9 +374,9 @@ class SettingsDialog(QDialog):
         }
         cfg.save(new_settings)
 
-        # Pas thema direct toe als het veranderd is
-        if new_settings["theme"] != self._settings.get("theme") and self._on_theme_change:
-            self._on_theme_change(new_settings["theme"])
+        # Pas palet direct toe als het veranderd is
+        if new_settings["palette"] != self._settings.get("palette") and self._on_palette_change:
+            self._on_palette_change(new_settings["palette"])
 
         if self._on_font_change:
             self._on_font_change(new_settings["font_family"], new_settings["font_size"])

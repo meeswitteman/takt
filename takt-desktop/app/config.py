@@ -7,6 +7,7 @@ _CONFIG_PATH = Path(os.environ.get("APPDATA", Path.home())) / "takt" / "settings
 _DEFAULTS = {
     "api_url": "http://127.0.0.1:8080",
     "theme": "dark",
+    "palette": "Donker",
     "default_context": None,
     "font_family": "Segoe UI",
     "font_size": 10,

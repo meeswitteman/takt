@@ -10,10 +10,7 @@ def main():
     app.setApplicationName("Takt")
 
     settings = cfg.load()
-    if settings.get("theme", "dark") == "dark":
-        theme_module.apply_dark(app)
-    else:
-        theme_module.apply_light(app)
+    theme_module.apply_palette(app, theme_module.palette_from_settings(settings))
     theme_module.apply_font(app, settings.get("font_family", "Segoe UI"), settings.get("font_size", 10))
 
     window = MainWindow(app)

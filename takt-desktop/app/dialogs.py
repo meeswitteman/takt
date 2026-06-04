@@ -266,9 +266,9 @@ class ItemEditDialog(QDialog):
         # Status
         grp_status = QGroupBox("Status")
         grp_layout = QVBoxLayout(grp_status)
-        self._done_cb = QCheckBox("Gedaan  [v]")
+        self._done_cb = QCheckBox("Gedaan")
         self._done_cb.setChecked(self.is_done)
-        self._todo_cb = QCheckBox("Todo  ●")
+        self._todo_cb = QCheckBox("Todo")
         self._todo_cb.setChecked(self.is_todo)
         grp_layout.addWidget(self._done_cb)
         grp_layout.addWidget(self._todo_cb)

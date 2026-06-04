@@ -66,10 +66,7 @@ def _run_frontend():
     qt_app = QApplication(sys.argv)
     qt_app.setApplicationName("Takt")
 
-    if settings.get("theme", "dark") == "dark":
-        theme_module.apply_dark(qt_app)
-    else:
-        theme_module.apply_light(qt_app)
+    theme_module.apply_palette(qt_app, theme_module.palette_from_settings(settings))
     theme_module.apply_font(
         qt_app,
         settings.get("font_family", "Segoe UI"),

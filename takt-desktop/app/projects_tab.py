@@ -5,62 +5,79 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QMenu, QLabel,
 )
-from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QKeySequence, QShortcut, QColor, QFont
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 
 from app import client
-from app.delegates import TitleChipsDelegate, ITEM_DATA_ROLE, ITEM_ID_ROLE, ITEM_LOADED
+from app.delegates import (
+    TitleChipsDelegate, ITEM_DATA_ROLE, ITEM_ID_ROLE, ITEM_LOADED,
+    ITEM_PENDING, CHEVRON_W, BULLET_W,
+)
 from app.dialogs import (
-    NewItemDialog, RenameDialog, DoneDialog,
-    ContextAssignDialog, RecurringDialog, VariationAssignDialog,
+    DoneDialog, ContextAssignDialog, RecurringDialog, VariationAssignDialog,
     ItemEditDialog, confirm_delete, show_error,
 )
 
 INDENT = 28   # pixels per niveau
 
-_INTERVAL_LABELS = {
-    "direct":        "direct",
-    "daily":         "dagelijks",
-    "weekly":        "wekelijks",
-    "weekday:0":     "maandag",
-    "weekday:1":     "dinsdag",
-    "weekday:2":     "woensdag",
-    "weekday:3":     "donderdag",
-    "weekday:4":     "vrijdag",
-    "weekday:5":     "zaterdag",
-    "weekday:6":     "zondag",
-    "monthly_first": "1e van de maand",
-}
 
-def _interval_label(interval: str | None) -> str:
-    return _INTERVAL_LABELS.get(interval or "", interval or "")
+class OutlineTree(QTreeWidget):
+    """QTreeWidget met Workflowy-gedrag: klik op de bullet, Enter = nieuwe regel."""
+    bulletClicked = pyqtSignal(object)
+    enterPressed  = pyqtSignal()
+    emptyClicked  = pyqtSignal()
+
+    def mousePressEvent(self, e):
+        item = self.itemAt(e.pos())
+        if item is not None:
+            left = self.visualItemRect(item).left()
+            x = e.pos().x()
+            # Chevron-zone → in-/uitklappen
+            if left <= x < left + CHEVRON_W:
+                data = item.data(0, ITEM_DATA_ROLE)
+                if (data and data.get("has_children")) or item.childCount() > 0:
+                    item.setExpanded(not item.isExpanded())
+                return
+            # Bullet-zone → inzoomen
+            if left + CHEVRON_W <= x < left + CHEVRON_W + BULLET_W:
+                self.setCurrentItem(item)
+                self.bulletClicked.emit(item)
+                return
+            super().mousePressEvent(e)
+        else:
+            super().mousePressEvent(e)
+            self.emptyClicked.emit()
+
+    def keyPressEvent(self, e):
+        if (e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and self.state() != QAbstractItemView.State.EditingState):
+            self.enterPressed.emit()
+            return
+        super().keyPressEvent(e)
 
 
 class ProjectsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._active_root_ids: set[int] = set()
+        self._zoom_path: list[tuple[int, str]] = []
+        self._suppress = False        # onderdruk itemChanged tijdens programmatische updates
+        self._pending_node: QTreeWidgetItem | None = None
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Toolbar
-        bar = QHBoxLayout()
-        btn_new = QPushButton("+ Root item")
-        btn_new.clicked.connect(self._add_root)
-        bar.addWidget(btn_new)
-
-        hint = QLabel("  Alt+↑↓ verplaatsen  |  Tab indenteren  |  Shift+Tab uitdenten  |  F2 hernoemen  |  Ctrl+N sub-item  |  Del verwijderen")
-        hint.setStyleSheet("color: #666; font-size: 11px;")
-        bar.addWidget(hint)
-        bar.addStretch()
-
-        btn_refresh = QPushButton("Vernieuwen")
-        btn_refresh.clicked.connect(self._load_roots)
-        bar.addWidget(btn_refresh)
-        layout.addLayout(bar)
+        # Breadcrumb-balk (alleen zichtbaar bij inzoomen)
+        self._crumb_bar = QWidget()
+        self._crumb_layout = QHBoxLayout(self._crumb_bar)
+        self._crumb_layout.setContentsMargins(6, 2, 6, 2)
+        self._crumb_layout.setSpacing(2)
+        self._crumb_bar.hide()
+        layout.addWidget(self._crumb_bar)
 
         # Boom
-        self.tree = QTreeWidget()
+        self.tree = OutlineTree()
         self.tree.setColumnCount(1)
         self.tree.setHeaderHidden(True)
         self.tree.setIndentation(INDENT)
@@ -70,89 +87,135 @@ class ProjectsTab(QWidget):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.setUniformRowHeights(True)
         self.tree.setAnimated(False)
-        self.tree.setStyleSheet("""
-            QTreeWidget { border: 1px solid #3a3a3a; }
-            QTreeWidget::item { padding: 2px 0; }
-            QTreeWidget::item:selected { background: #2a5a8a; }
-            QTreeWidget::item:hover:!selected { background: #2a3a4a; }
-            QTreeWidget::branch { background: transparent; }
-        """)
+        self.tree.setExpandsOnDoubleClick(False)
+        self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self.tree)
 
         # Signalen
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemDoubleClicked.connect(self._on_double_click)
         self.tree.customContextMenuRequested.connect(self._context_menu)
+        self.tree.itemChanged.connect(self._on_item_changed)
+        self.tree.bulletClicked.connect(self._zoom_into)
+        self.tree.enterPressed.connect(self._new_sibling)
+        self.tree.emptyClicked.connect(self._new_at_current_level)
+        self._delegate.closeEditor.connect(self._on_close_editor)
 
         # Sneltoetsen
-        QShortcut(QKeySequence("F2"),          self, self._rename_selected)
-        QShortcut(QKeySequence("Ctrl+N"),      self, self._add_child)
-        QShortcut(QKeySequence("Delete"),      self, self._delete_selected)
-        QShortcut(QKeySequence("Alt+Up"),      self, self._move_up)
-        QShortcut(QKeySequence("Alt+Down"),    self, self._move_down)
-        QShortcut(QKeySequence("Tab"),         self, self._indent)
-        QShortcut(QKeySequence("Shift+Tab"),   self, self._outdent)
+        QShortcut(QKeySequence("F2"),        self.tree, self._edit_selected)
+        QShortcut(QKeySequence("Ctrl+N"),    self.tree, self._add_child)
+        QShortcut(QKeySequence("Delete"),    self.tree, self._delete_selected)
+        QShortcut(QKeySequence("Alt+Up"),    self.tree, self._move_up)
+        QShortcut(QKeySequence("Alt+Down"),  self.tree, self._move_down)
+        QShortcut(QKeySequence("Tab"),       self.tree, self._indent)
+        QShortcut(QKeySequence("Shift+Tab"), self.tree, self._outdent)
 
-        self._active_root_ids: set[int] = set()
-        self._load_roots()
+        self._load()
 
     # ------------------------------------------------------------------
-    # Laden
+    # Laden / inzoomen
     # ------------------------------------------------------------------
+
+    @property
+    def _current_parent_id(self) -> int | None:
+        return self._zoom_path[-1][0] if self._zoom_path else None
 
     def apply_filter(self, root_ids: list[int]):
         self._active_root_ids = set(root_ids)
-        self._load_roots()
+        self._zoom_path = []
+        self._load()
 
-    def _load_roots(self):
+    def _load(self):
+        self.tree.blockSignals(True)
         self.tree.clear()
+        self.tree.blockSignals(False)
         try:
-            roots = client.get_roots()
-            if self._active_root_ids:
-                roots = [r for r in roots if r["id"] in self._active_root_ids]
-            for data in roots:
-                self.tree.addTopLevelItem(self._make_node(data))
+            if self._zoom_path:
+                items = client.get_children(self._zoom_path[-1][0])
+            else:
+                items = client.get_roots()
+                if self._active_root_ids:
+                    items = [r for r in items if r["id"] in self._active_root_ids]
         except Exception as e:
             show_error(str(e), self)
-        if self.tree.topLevelItemCount() == 1:
+            items = []
+        for data in items:
+            self.tree.addTopLevelItem(self._make_node(data))
+        self._build_breadcrumb()
+        if not self._zoom_path and self.tree.topLevelItemCount() == 1:
             self.tree.expandItem(self.tree.topLevelItem(0))
+
+    def _zoom_into(self, node: QTreeWidgetItem):
+        data = node.data(0, ITEM_DATA_ROLE)
+        if not data:
+            return
+        self._zoom_path.append((data["id"], data["title"]))
+        self._load()
+
+    def _zoom_to(self, depth: int):
+        """Navigeer naar een niveau in de breadcrumb (0 = Home)."""
+        self._zoom_path = self._zoom_path[:depth]
+        self._load()
+
+    def _build_breadcrumb(self):
+        while self._crumb_layout.count():
+            item = self._crumb_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not self._zoom_path:
+            self._crumb_bar.hide()
+            return
+
+        def crumb(text: str, depth: int, active: bool):
+            if active:
+                lbl = QLabel(text)
+                lbl.setStyleSheet("font-weight: bold; padding: 2px 4px;")
+                return lbl
+            btn = QPushButton(text)
+            btn.setObjectName("crumb")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda: self._zoom_to(depth))
+            return btn
+
+        self._crumb_layout.addWidget(crumb("Home", 0, False))
+        for i, (_id, title) in enumerate(self._zoom_path):
+            sep = QLabel("›")
+            sep.setStyleSheet("color: #888; padding: 0 2px;")
+            self._crumb_layout.addWidget(sep)
+            self._crumb_layout.addWidget(crumb(title, i + 1, i == len(self._zoom_path) - 1))
+        self._crumb_layout.addStretch()
+        self._crumb_bar.show()
+
+    # ------------------------------------------------------------------
+    # Node-opbouw
+    # ------------------------------------------------------------------
 
     def _make_node(self, data: dict) -> QTreeWidgetItem:
         node = QTreeWidgetItem()
+        node.setData(0, ITEM_LOADED, False)
+        node.setData(0, ITEM_PENDING, False)
         self._apply_data(node, data)
-        node.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        policy = (QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+                  if data.get("has_children")
+                  else QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
+        node.setChildIndicatorPolicy(policy)
         return node
 
     def _apply_data(self, node: QTreeWidgetItem, data: dict) -> None:
-        title = data["title"]
-        markers = []
-        if data.get("is_todo"):
-            markers.append("●")
-        if markers:
-            title = " ".join(markers) + "  " + title
-        if data.get("is_recurring"):
-            title += "  - " + _interval_label(data.get("recurring_interval"))
-        if data.get("is_done"):
-            title = title + "  [v]"
-        node.setText(0, title)
+        self._suppress = True
+        node.setText(0, data["title"])
         node.setData(0, ITEM_DATA_ROLE, data)
         node.setData(0, ITEM_ID_ROLE, data["id"])
-        node.setData(0, ITEM_LOADED, False)
-        if data.get("is_done"):
-            node.setForeground(0, QColor("#888888"))
-        elif data.get("is_todo"):
-            node.setForeground(0, QColor("#7ec88a"))
-        else:
-            node.setForeground(0, QColor("#dcdcdc"))
+        node.setFlags(node.flags() | Qt.ItemFlag.ItemIsEditable)
+        self._suppress = False
 
     def _on_expanded(self, node: QTreeWidgetItem):
         if node.data(0, ITEM_LOADED):
             return
         node.setData(0, ITEM_LOADED, True)
         node.takeChildren()
-        item_id = node.data(0, ITEM_ID_ROLE)
         try:
-            children = client.get_children(item_id)
+            children = client.get_children(node.data(0, ITEM_ID_ROLE))
         except Exception as e:
             show_error(str(e), self)
             return
@@ -171,6 +234,109 @@ class ProjectsTab(QWidget):
             show_error(str(e), self)
 
     # ------------------------------------------------------------------
+    # Inline bewerken
+    # ------------------------------------------------------------------
+
+    def _edit_selected(self):
+        node = self._selected_node()
+        if node:
+            self.tree.editItem(node, 0)
+
+    def _on_double_click(self, node: QTreeWidgetItem, _col: int):
+        data = node.data(0, ITEM_DATA_ROLE) or {}
+        is_leaf = not (data.get("has_children") or node.childCount() > 0)
+        if is_leaf:
+            self._open_edit_dialog(node)   # leaf → Item bewerken
+        else:
+            self.tree.editItem(node, 0)    # parent → inline hernoemen
+
+    def _on_item_changed(self, node: QTreeWidgetItem, _col: int):
+        if self._suppress:
+            return
+        new_title = node.text(0).strip()
+        pending = node.data(0, ITEM_PENDING)
+        item_id = node.data(0, ITEM_ID_ROLE)
+
+        if pending:
+            node.setData(0, ITEM_PENDING, False)
+            self._pending_node = None
+            if not new_title:
+                self._discard_node(node, item_id)
+                return
+        elif not new_title:
+            self._refresh_node(node)   # lege titel niet toegestaan → herstel
+            return
+        else:
+            old = node.data(0, ITEM_DATA_ROLE) or {}
+            if new_title == old.get("title"):
+                return
+        try:
+            data = client.update_item(item_id, title=new_title)
+            self._apply_data(node, data)
+        except Exception as e:
+            show_error(str(e), self)
+
+    def _on_close_editor(self, _editor, _hint):
+        # Esc op een net aangemaakt (leeg) item → weer opruimen.
+        node = self._pending_node
+        if node is not None and node.data(0, ITEM_PENDING):
+            node.setData(0, ITEM_PENDING, False)
+            self._pending_node = None
+            if not node.text(0).strip():
+                self._discard_node(node, node.data(0, ITEM_ID_ROLE))
+
+    def _discard_node(self, node: QTreeWidgetItem, item_id):
+        try:
+            client.delete_item(item_id)
+        except Exception:
+            pass
+        self._take_node(node)
+
+    def _begin_new(self, parent_id, parent_node: QTreeWidgetItem | None, idx: int):
+        try:
+            data = client.create_item(parent_id, "")
+        except Exception as e:
+            show_error(str(e), self)
+            return
+        node = self._make_node(data)
+        node.setData(0, ITEM_PENDING, True)
+        if parent_node is not None:
+            parent_node.insertChild(idx, node)
+            parent_node.setExpanded(True)
+            parent_node.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        else:
+            self.tree.insertTopLevelItem(idx, node)
+        # Zet de backend-volgorde gelijk aan de UI-positie
+        try:
+            client.move_item(data["id"], parent_id, idx)
+        except Exception:
+            pass
+        self._pending_node = node
+        self.tree.setCurrentItem(node)
+        self.tree.editItem(node, 0)
+
+    def _new_sibling(self):
+        node = self._selected_node()
+        if node is None:
+            self._new_at_current_level()
+            return
+        parent = node.parent()
+        parent_id = self._node_parent_id(node)
+        idx = self._node_index(node) + 1
+        self._begin_new(parent_id, parent, idx)
+
+    def _new_at_current_level(self):
+        count = self.tree.topLevelItemCount()
+        self._begin_new(self._current_parent_id, None, count)
+
+    def _add_child(self):
+        node = self._selected_node()
+        if node is None:
+            self._new_at_current_level()
+            return
+        self._begin_new(node.data(0, ITEM_ID_ROLE), node, node.childCount())
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -186,7 +352,9 @@ class ProjectsTab(QWidget):
 
     def _node_parent_id(self, node: QTreeWidgetItem) -> int | None:
         parent = node.parent()
-        return parent.data(0, ITEM_ID_ROLE) if parent else None
+        if parent:
+            return parent.data(0, ITEM_ID_ROLE)
+        return self._current_parent_id
 
     def _take_node(self, node: QTreeWidgetItem) -> QTreeWidgetItem:
         parent = node.parent()
@@ -253,11 +421,7 @@ class ProjectsTab(QWidget):
         idx = self._node_index(node)
         if idx <= 0:
             return
-        # Vorige sibling
-        if parent:
-            prev = parent.child(idx - 1)
-        else:
-            prev = self.tree.topLevelItem(idx - 1)
+        prev = parent.child(idx - 1) if parent else self.tree.topLevelItem(idx - 1)
         if not prev:
             return
         new_parent_id = prev.data(0, ITEM_ID_ROLE)
@@ -277,9 +441,9 @@ class ProjectsTab(QWidget):
             return
         parent = node.parent()
         if not parent:
-            return
+            return   # top-level binnen de huidige weergave: niet verder uit te springen
         grandparent = parent.parent()
-        grandparent_id = grandparent.data(0, ITEM_ID_ROLE) if grandparent else None
+        grandparent_id = grandparent.data(0, ITEM_ID_ROLE) if grandparent else self._current_parent_id
         new_idx = self._node_index(parent) + 1
         try:
             client.move_item(node.data(0, ITEM_ID_ROLE), grandparent_id, new_idx)
@@ -289,51 +453,8 @@ class ProjectsTab(QWidget):
             show_error(str(e), self)
 
     # ------------------------------------------------------------------
-    # CRUD
+    # CRUD / status
     # ------------------------------------------------------------------
-
-    def _add_root(self):
-        dlg = NewItemDialog(parent_title=None, parent=self)
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        try:
-            data = client.create_item(None, dlg.title)
-            self.tree.addTopLevelItem(self._make_node(data))
-        except Exception as e:
-            show_error(str(e), self)
-
-    def _add_child(self):
-        node = self._selected_node()
-        if node is None:
-            self._add_root()
-            return
-        parent_title = node.data(0, ITEM_DATA_ROLE)["title"]
-        dlg = NewItemDialog(parent_title=parent_title, parent=self)
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        parent_id = node.data(0, ITEM_ID_ROLE)
-        try:
-            data = client.create_item(parent_id, dlg.title)
-            child = self._make_node(data)
-            node.addChild(child)
-            node.setExpanded(True)
-            node.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
-        except Exception as e:
-            show_error(str(e), self)
-
-    def _rename_selected(self):
-        node = self._selected_node()
-        if not node:
-            return
-        dlg = RenameDialog(node.data(0, ITEM_DATA_ROLE)["title"], parent=self)
-        if dlg.exec() != dlg.DialogCode.Accepted:
-            return
-        try:
-            data = client.update_item(node.data(0, ITEM_ID_ROLE), title=dlg.title)
-            self._apply_data(node, data)
-            self.tree.viewport().update()
-        except Exception as e:
-            show_error(str(e), self)
 
     def _delete_selected(self):
         node = self._selected_node()
@@ -394,10 +515,8 @@ class ProjectsTab(QWidget):
         except Exception as e:
             show_error(str(e), self)
 
-    def _on_double_click(self, node: QTreeWidgetItem, _col: int):
+    def _open_edit_dialog(self, node: QTreeWidgetItem):
         data = node.data(0, ITEM_DATA_ROLE)
-        if data and data.get("has_children", True):
-            return  # Qt verzorgt expand/collapse
         try:
             lists = client.get_variations()
             all_contexts = client.get_contexts()
@@ -472,17 +591,12 @@ class ProjectsTab(QWidget):
         try:
             lists = client.get_variations()
             dlg = VariationAssignDialog(
-                lists,
-                data.get("variation_list_id"),
-                data.get("variation_mode"),
-                parent=self,
+                lists, data.get("variation_list_id"), data.get("variation_mode"), parent=self,
             )
             if dlg.exec() != dlg.DialogCode.Accepted:
                 return
             updated = client.set_variation(
-                node.data(0, ITEM_ID_ROLE),
-                dlg.variation_list_id,
-                dlg.mode,
+                node.data(0, ITEM_ID_ROLE), dlg.variation_list_id, dlg.mode,
             )
             self._apply_data(node, updated)
             self.tree.viewport().update()
@@ -513,24 +627,26 @@ class ProjectsTab(QWidget):
         data = node.data(0, ITEM_DATA_ROLE)
         menu = QMenu(self)
 
-        done_label = "Markeren als gedaan  [v]" if not data.get("is_done") else "Niet gedaan markeren"
+        menu.addAction("Inzoomen").triggered.connect(lambda: self._zoom_into(node))
+        menu.addSeparator()
+
+        done_label = "Markeren als gedaan" if not data.get("is_done") else "Niet gedaan markeren"
         menu.addAction(done_label).triggered.connect(lambda: self._toggle_done(node))
 
-        menu.addSeparator()
         act = menu.addAction("Als todo markeren" if not data.get("is_todo") else "Todo verwijderen")
         act.triggered.connect(lambda: self._toggle_todo(node))
 
         if data.get("is_todo"):
-            act2 = menu.addAction("Afvinken...")
-            act2.triggered.connect(lambda: self._mark_done(node))
+            menu.addAction("Afvinken...").triggered.connect(lambda: self._mark_done(node))
 
         menu.addSeparator()
         menu.addAction("Context...").triggered.connect(lambda: self._assign_contexts(node))
         menu.addAction("Recurring...").triggered.connect(lambda: self._set_recurring(node))
         menu.addAction("Variatie...").triggered.connect(lambda: self._assign_variation(node))
+        menu.addAction("Bewerken...").triggered.connect(lambda: self._open_edit_dialog(node))
         menu.addSeparator()
         menu.addAction("Nieuw sub-item  Ctrl+N").triggered.connect(self._add_child)
-        menu.addAction("Hernoemen  F2").triggered.connect(self._rename_selected)
+        menu.addAction("Hernoemen  F2").triggered.connect(self._edit_selected)
         menu.addAction("Verwijderen  Del").triggered.connect(self._delete_selected)
 
         if data.get("src"):

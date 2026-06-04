@@ -1,5 +1,8 @@
 from pathlib import Path
-from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import (
+    QMainWindow, QTabWidget, QPushButton, QMenu, QMessageBox, QFileDialog,
+)
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
 from app.projects_tab import ProjectsTab
@@ -14,7 +17,6 @@ class MainWindow(QMainWindow):
     def __init__(self, app):
         super().__init__()
         self._app = app
-        self.setWindowTitle("Takt")
         self.setMinimumSize(960, 640)
         self.resize(1100, 720)
 
@@ -29,16 +31,17 @@ class MainWindow(QMainWindow):
         )
         self._history = HistoryTab()
 
-        self._stack = QStackedWidget()
-        self._stack.addWidget(self._projects)   # 0
-        self._stack.addWidget(self._todos)      # 1
-        self._stack.addWidget(self._filter_tab) # 2
-        self._stack.addWidget(self._history)    # 3
-        self.setCentralWidget(self._stack)
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._projects, "Project")
+        self._tabs.addTab(self._todos, "Todo")
+        self._tabs.addTab(self._filter_tab, "Filter")
+        self._tabs.addTab(self._history, "Geschiedenis")
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+        self.setCentralWidget(self._tabs)
 
+        self._build_menu_button()
         self._filter_tab.filter_changed.connect(self._apply_global_filter)
 
-        self._build_menu()
         self._projects._delegate.spacing = self._settings.get("item_spacing", 12)
         self._update_title()
 
@@ -49,65 +52,53 @@ class MainWindow(QMainWindow):
             self._projects.apply_filter(roots)
             self._todos.apply_filter(ctx, roots)
 
-    def _build_menu(self):
-        mb = self.menuBar()
+    # ------------------------------------------------------------------
+    # Menu-knop (hamburger, rechtsboven naast de tabs)
+    # ------------------------------------------------------------------
 
-        # Bestand
-        bestand = mb.addMenu("Bestand")
+    def _build_menu_button(self):
+        btn = QPushButton("☰")
+        btn.setObjectName("menu-btn")
+        menu = QMenu(btn)
+
         act_db = QAction("Database kiezen...", self)
         act_db.triggered.connect(self._choose_database)
-        bestand.addAction(act_db)
+        menu.addAction(act_db)
 
-        # Navigatie — top-level items
-        self._act_project = QAction("Project", self)
-        self._act_project.setCheckable(True)
-        self._act_project.setChecked(True)
-        self._act_project.triggered.connect(lambda: self._show_view(0))
-        mb.addAction(self._act_project)
-
-        self._act_todo = QAction("Todo", self)
-        self._act_todo.setCheckable(True)
-        self._act_todo.triggered.connect(lambda: self._show_view(1))
-        mb.addAction(self._act_todo)
-
-        self._act_filter = QAction("Filter", self)
-        self._act_filter.setCheckable(True)
-        self._act_filter.triggered.connect(lambda: self._show_view(2))
-        mb.addAction(self._act_filter)
-
-        self._act_history = QAction("Geschiedenis", self)
-        self._act_history.setCheckable(True)
-        self._act_history.triggered.connect(lambda: self._show_view(3))
-        mb.addAction(self._act_history)
-
-        # Beheer
-        beheer = mb.addMenu("Beheer")
+        menu.addSeparator()
         act_ctx = QAction("Context...", self)
         act_ctx.triggered.connect(self._open_contexts)
-        beheer.addAction(act_ctx)
+        menu.addAction(act_ctx)
 
         act_var = QAction("Variatielijst...", self)
         act_var.triggered.connect(self._open_variations)
-        beheer.addAction(act_var)
+        menu.addAction(act_var)
 
-        beheer.addSeparator()
-        self._act_theme = QAction("Licht thema", self)
-        self._act_theme.triggered.connect(self._toggle_theme)
-        beheer.addAction(self._act_theme)
-
-        beheer.addSeparator()
+        menu.addSeparator()
         act_settings = QAction("Instellingen...", self)
         act_settings.triggered.connect(self._open_settings)
-        beheer.addAction(act_settings)
+        menu.addAction(act_settings)
 
-        # Help
-        help_menu = mb.addMenu("Help")
+        menu.addSeparator()
         act_about = QAction("Over Takt", self)
         act_about.triggered.connect(self._about)
-        help_menu.addAction(act_about)
+        menu.addAction(act_about)
+
+        btn.setMenu(menu)
+        self._tabs.setCornerWidget(btn, Qt.Corner.TopRightCorner)
 
     # ------------------------------------------------------------------
-    # Bestand
+    # Navigatie
+    # ------------------------------------------------------------------
+
+    def _on_tab_changed(self, index: int):
+        if index == 1:
+            self._todos.refresh()
+        elif index == 3:
+            self._history.refresh()
+
+    # ------------------------------------------------------------------
+    # Bestand / database
     # ------------------------------------------------------------------
 
     def _update_title(self):
@@ -136,21 +127,6 @@ class MainWindow(QMainWindow):
         )
 
     # ------------------------------------------------------------------
-    # Navigatie
-    # ------------------------------------------------------------------
-
-    def _show_view(self, index: int):
-        self._stack.setCurrentIndex(index)
-        self._act_project.setChecked(index == 0)
-        self._act_todo.setChecked(index == 1)
-        self._act_filter.setChecked(index == 2)
-        self._act_history.setChecked(index == 3)
-        if index == 1:
-            self._todos.refresh()
-        elif index == 3:
-            self._history.refresh()
-
-    # ------------------------------------------------------------------
     # Filter
     # ------------------------------------------------------------------
 
@@ -167,9 +143,8 @@ class MainWindow(QMainWindow):
 
     def _open_contexts(self):
         from app.management import ContextsDialog
-        dlg = ContextsDialog(self)
-        dlg.exec()
-        self._projects._load_roots()
+        ContextsDialog(self).exec()
+        self._projects._load()
         self._todos.refresh()
         self._filter_tab.reload()
 
@@ -186,32 +161,24 @@ class MainWindow(QMainWindow):
         self._projects._delegate.spacing = spacing
         self._projects.tree.scheduleDelayedItemsLayout()
 
+    def _apply_palette(self, name: str):
+        theme_module.apply_palette(self._app, name)
+        self._settings["palette"] = name
+        theme_module.apply_font(
+            self._app,
+            self._settings.get("font_family", "Segoe UI"),
+            self._settings.get("font_size", 10),
+        )
+        self._projects.tree.viewport().update()
+        self._todos.refresh()
+        self._history.refresh()
+
     def _open_settings(self):
         from app.management import SettingsDialog
-        dlg = SettingsDialog(on_theme_change=self._apply_theme, on_font_change=self._apply_font,
+        dlg = SettingsDialog(on_palette_change=self._apply_palette, on_font_change=self._apply_font,
                              on_spacing_change=self._apply_spacing, parent=self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             self._settings = cfg.load()
-
-    # ------------------------------------------------------------------
-    # Thema
-    # ------------------------------------------------------------------
-
-    def _toggle_theme(self):
-        current = self._settings.get("theme", "dark")
-        new = "light" if current == "dark" else "dark"
-        self._apply_theme(new)
-        self._settings["theme"] = new
-        cfg.save(self._settings)
-
-    def _apply_theme(self, theme: str):
-        if theme == "dark":
-            theme_module.apply_dark(self._app)
-            self._act_theme.setText("Licht thema")
-        else:
-            theme_module.apply_light(self._app)
-            self._act_theme.setText("Donker thema")
-        self._settings["theme"] = theme
 
     # ------------------------------------------------------------------
     # Over
