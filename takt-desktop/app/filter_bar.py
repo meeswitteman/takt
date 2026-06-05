@@ -161,7 +161,7 @@ class FilterBar(QWidget):
         self._done.toggled.connect(lambda _: self._emit())
         lay.addWidget(self._done)
 
-        self._show_desc = QCheckBox("toon omschrijving")
+        self._show_desc = QCheckBox("desc")
         self._show_desc.setChecked(initial_show_descriptions)
         self._show_desc.toggled.connect(
             lambda checked: self.show_descriptions_changed.emit(checked)
