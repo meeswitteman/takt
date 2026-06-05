@@ -112,6 +112,15 @@ def get_history(item_id: int):
 def get_all_history():
     return _get("/api/v1/todos/history")
 
+def delete_history(before: str | None = None) -> int:
+    params = {"before": before} if before else None
+    r = _http().delete(f"{BASE_URL}/api/v1/todos/history", params=params)
+    r.raise_for_status()
+    return r.json().get("deleted", 0)
+
+def delete_history_entry(log_id: int):
+    _delete(f"/api/v1/todos/history/{log_id}")
+
 def get_contexts():
     return _get("/api/v1/contexts")
 

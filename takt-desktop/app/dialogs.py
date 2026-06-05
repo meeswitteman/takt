@@ -1,9 +1,11 @@
+from datetime import datetime, timedelta, timezone
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QDialogButtonBox, QColorDialog,
     QCheckBox, QComboBox, QMessageBox, QFormLayout, QGroupBox,
+    QDateTimeEdit,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QDateTime
 from PyQt6.QtGui import QColor
 
 
@@ -334,6 +336,73 @@ class ItemEditDialog(QDialog):
         self.variation_list_id = self._var_combo.currentData()
         self.variation_mode = self._mode_combo.currentData() if self.variation_list_id else None
         self.context_ids    = [cid for cb, cid in self._ctx_checks if cb.isChecked()]
+        self.accept()
+
+
+class CleanupHistoryDialog(QDialog):
+    """Kies een grens; geschiedenis-records ouder dan die grens worden verwijderd."""
+
+    # (label, dagen) — None betekent custom datum, "all" betekent alles
+    PRESETS = [
+        ("Ouder dan 1 week", 7),
+        ("Ouder dan 1 maand", 30),
+        ("Ouder dan 3 maanden", 90),
+        ("Ouder dan 6 maanden", 180),
+        ("Ouder dan 1 jaar", 365),
+        ("Aangepaste datum/tijd…", None),
+        ("Alle geschiedenis", "all"),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Geschiedenis opschonen")
+        self.setMinimumWidth(360)
+        # Resultaat: ISO-string van de grens (UTC), of None om alles te verwijderen.
+        self.before: str | None = None
+        # Leesbare omschrijving van de grens voor de bevestiging (lokale tijd).
+        self.before_label: str = ""
+        self.delete_all = False
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Verwijder afgevinkte records:"))
+
+        self._combo = QComboBox()
+        for label, val in self.PRESETS:
+            self._combo.addItem(label, val)
+        self._combo.currentIndexChanged.connect(self._on_change)
+        layout.addWidget(self._combo)
+
+        self._dt_edit = QDateTimeEdit()
+        self._dt_edit.setCalendarPopup(True)
+        self._dt_edit.setDisplayFormat("dd-MM-yyyy  HH:mm")
+        self._dt_edit.setDateTime(QDateTime.currentDateTime().addMonths(-1))
+        self._dt_edit.setEnabled(False)
+        layout.addWidget(self._dt_edit)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Verwijderen")
+        btns.accepted.connect(self._accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _on_change(self):
+        self._dt_edit.setEnabled(self._combo.currentData() is None)
+
+    def _accept(self):
+        val = self._combo.currentData()
+        if val == "all":
+            self.delete_all = True
+            self.before = None
+        elif val is None:
+            # Kiezer staat in lokale tijd; tijdstempels worden in UTC opgeslagen.
+            # Converteer naar UTC zodat de grens overeenkomt met opslag en presets.
+            local_dt = self._dt_edit.dateTime().toPyDateTime()
+            self.before_label = local_dt.strftime("%d-%m-%Y  %H:%M")
+            self.before = local_dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+        else:
+            self.before_label = self._combo.currentText().lower()
+            cutoff = datetime.utcnow() - timedelta(days=int(val))
+            self.before = cutoff.isoformat()
         self.accept()
 
 

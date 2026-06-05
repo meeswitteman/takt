@@ -1,18 +1,21 @@
 from datetime import datetime, timezone
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QFrame, QSizePolicy,
+    QListWidgetItem, QFrame, QSizePolicy, QPushButton, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QSize
 
 from app import client
-from app.dialogs import show_error
+from app.dialogs import show_error, CleanupHistoryDialog
 
 
 def _fmt_dt(dt_str: str) -> str:
     try:
         dt = datetime.fromisoformat(dt_str)
-        return dt.strftime("%d-%m-%Y  %H:%M")
+        # Tijdstempels worden naïef in UTC opgeslagen; toon ze in lokale tijd.
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%d-%m-%Y  %H:%M")
     except Exception:
         return dt_str
 
@@ -74,6 +77,9 @@ class HistoryTab(QWidget):
         self._count_lbl.setStyleSheet("color: #888;")
         top.addWidget(self._count_lbl)
         top.addStretch()
+        self._cleanup_btn = QPushButton("🗑 Opschonen…")
+        self._cleanup_btn.clicked.connect(self._cleanup)
+        top.addWidget(self._cleanup_btn)
         layout.addLayout(top)
 
         self._list = QListWidget()
@@ -103,3 +109,29 @@ class HistoryTab(QWidget):
             item.setSizeHint(QSize(0, max(card.sizeHint().height(), 52) + 4))
             self._list.addItem(item)
             self._list.setItemWidget(item, card)
+
+    def _cleanup(self):
+        dlg = CleanupHistoryDialog(self)
+        if dlg.exec() != CleanupHistoryDialog.DialogCode.Accepted:
+            return
+
+        if dlg.delete_all:
+            msg = "Weet je zeker dat je ALLE geschiedenis wilt verwijderen?"
+        else:
+            msg = f"Alle records van vóór {dlg.before_label} verwijderen?"
+
+        if QMessageBox.question(
+            self, "Geschiedenis opschonen", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        ) != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            deleted = client.delete_history(dlg.before)
+        except Exception as e:
+            show_error(str(e), self)
+            return
+
+        self.refresh()
+        QMessageBox.information(self, "Opgeschoond", f"{deleted} record(s) verwijderd.")

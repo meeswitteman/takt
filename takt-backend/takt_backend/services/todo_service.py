@@ -156,6 +156,26 @@ def list_history(db: Session, limit: int = 500) -> list[dict]:
     return result
 
 
+def delete_history(db: Session, before: datetime | None = None) -> int:
+    """Verwijder geschiedenis-records. Met `before` alleen records ouder dan dat
+    tijdstip, anders alle records. Geeft het aantal verwijderde records terug."""
+    query = db.query(TodoLog)
+    if before is not None:
+        query = query.filter(TodoLog.completed_at < before)
+    count = query.count()
+    query.delete(synchronize_session=False)
+    db.commit()
+    return count
+
+
+def delete_history_entry(db: Session, log_id: int) -> None:
+    log = db.get(TodoLog, log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    db.delete(log)
+    db.commit()
+
+
 def get_history(db: Session, item_id: int) -> list[TodoLog]:
     item = db.get(Item, item_id)
     if not item:
