@@ -60,6 +60,8 @@ class ProjectsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._active_root_ids: set[int] = set()
+        self._active_ctx_ids: list[int] = []
+        self._hide_done: bool = False
         self._zoom_path: list[tuple[int, str]] = []
         self._suppress = False        # onderdruk itemChanged tijdens programmatische updates
         self._pending_node: QTreeWidgetItem | None = None
@@ -120,30 +122,76 @@ class ProjectsTab(QWidget):
     def _current_parent_id(self) -> int | None:
         return self._zoom_path[-1][0] if self._zoom_path else None
 
-    def apply_filter(self, root_ids: list[int]):
+    def apply_filter(self, context_ids: list[int], root_ids: list[int], hide_done: bool):
+        self._active_ctx_ids = list(context_ids)
         self._active_root_ids = set(root_ids)
+        self._hide_done = hide_done
         self._zoom_path = []
         self._load()
+
+    @property
+    def _filtered(self) -> bool:
+        """Gefilterde boom-modus: context-filter of 'verberg gedaan' actief."""
+        return bool(self._active_ctx_ids) or self._hide_done
 
     def _load(self):
         self.tree.blockSignals(True)
         self.tree.clear()
         self.tree.blockSignals(False)
-        try:
-            if self._zoom_path:
+
+        # Binnen een zoom: gewone (lazy) weergave van de kinderen.
+        if self._zoom_path:
+            try:
                 items = client.get_children(self._zoom_path[-1][0])
-            else:
-                items = client.get_roots()
-                if self._active_root_ids:
-                    items = [r for r in items if r["id"] in self._active_root_ids]
+            except Exception as e:
+                show_error(str(e), self)
+                items = []
+            for data in items:
+                self.tree.addTopLevelItem(self._make_node(data))
+            self._build_breadcrumb()
+            return
+
+        # Gefilterde modus: hele (gesnoeide) boom in één keer ophalen.
+        if self._filtered:
+            try:
+                roots = list(self._active_root_ids) or None
+                items = client.get_tree(self._active_ctx_ids or None, roots, self._hide_done)
+            except Exception as e:
+                show_error(str(e), self)
+                items = []
+            for data in items:
+                self.tree.addTopLevelItem(self._make_tree_node(data))
+            self._build_breadcrumb()
+            if self._active_ctx_ids:
+                self.tree.expandAll()   # auto-uitklappen naar treffers
+            return
+
+        # Geen filter: gewone lazy weergave van de roots.
+        try:
+            items = client.get_roots()
+            if self._active_root_ids:
+                items = [r for r in items if r["id"] in self._active_root_ids]
         except Exception as e:
             show_error(str(e), self)
             items = []
         for data in items:
             self.tree.addTopLevelItem(self._make_node(data))
         self._build_breadcrumb()
-        if not self._zoom_path and self.tree.topLevelItemCount() == 1:
+        if self.tree.topLevelItemCount() == 1:
             self.tree.expandItem(self.tree.topLevelItem(0))
+
+    def _make_tree_node(self, data: dict) -> QTreeWidgetItem:
+        """Bouw een node met al ingeladen (gefilterde) kinderen."""
+        node = self._make_node(data)
+        node.setData(0, ITEM_LOADED, True)
+        children = data.get("children") or []
+        for child in children:
+            node.addChild(self._make_tree_node(child))
+        policy = (QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator
+                  if children
+                  else QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
+        node.setChildIndicatorPolicy(policy)
+        return node
 
     def _zoom_into(self, node: QTreeWidgetItem):
         data = node.data(0, ITEM_DATA_ROLE)
@@ -292,6 +340,15 @@ class ProjectsTab(QWidget):
             pass
         self._take_node(node)
 
+    def _clear_todo_local(self, node: QTreeWidgetItem) -> None:
+        """Werk de cache bij: een ouder is geen todo meer (backend doet dit ook)."""
+        data = node.data(0, ITEM_DATA_ROLE)
+        if data and data.get("is_todo"):
+            updated = dict(data)
+            updated["is_todo"] = False
+            self._apply_data(node, updated)
+            self.tree.viewport().update()
+
     def _begin_new(self, parent_id, parent_node: QTreeWidgetItem | None, idx: int):
         try:
             data = client.create_item(parent_id, "")
@@ -304,6 +361,7 @@ class ProjectsTab(QWidget):
             parent_node.insertChild(idx, node)
             parent_node.setExpanded(True)
             parent_node.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+            self._clear_todo_local(parent_node)
         else:
             self.tree.insertTopLevelItem(idx, node)
         # Zet de backend-volgorde gelijk aan de UI-positie
@@ -431,6 +489,7 @@ class ProjectsTab(QWidget):
             self._take_node(node)
             self._insert_node(node, prev, new_idx)
             node.setData(0, ITEM_LOADED, True)
+            self._clear_todo_local(prev)
         except Exception as e:
             show_error(str(e), self)
 

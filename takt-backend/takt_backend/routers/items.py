@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from takt_backend.database import get_db
 from takt_backend.schemas.item import (
-    ItemCreate, ItemUpdate, ItemOut, ItemMoveRequest,
+    ItemCreate, ItemUpdate, ItemOut, ItemWithChildren, ItemMoveRequest,
     ItemTodoRequest, ItemRecurringRequest, ItemVariationRequest, ItemDoneRequest,
 )
 from takt_backend.services import item_service
@@ -13,6 +13,16 @@ router = APIRouter(prefix="/api/v1/items", tags=["items"])
 @router.get("", response_model=list[ItemOut])
 def get_roots(db: Session = Depends(get_db)):
     return item_service.get_roots(db)
+
+
+@router.get("/tree", response_model=list[ItemWithChildren])
+def get_tree(
+    context_id: list[int] = Query(default=[]),
+    root_id: list[int] = Query(default=[]),
+    hide_done: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    return item_service.get_tree(db, context_id, root_id, hide_done)
 
 
 @router.get("/{item_id}", response_model=ItemOut)

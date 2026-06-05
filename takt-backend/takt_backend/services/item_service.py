@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import datetime
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import select
@@ -80,6 +81,93 @@ def get_roots(db: Session) -> list[Item]:
     return [_enrich(i, db) for i in items]
 
 
+def _variation_value(item: Item) -> str | None:
+    if item.variation_list_id and item.variation_list and item.variation_list.entries:
+        entries = item.variation_list.entries
+        idx = item.variation_index % len(entries)
+        return entries[idx].value
+    return None
+
+
+def _tree_node(item: Item, kept_children: list[dict]) -> dict:
+    """Bouw een ItemWithChildren-dict voor een (al geladen) item."""
+    return {
+        "id": item.id,
+        "parent_id": item.parent_id,
+        "title": item.title,
+        "description": item.description,
+        "order_index": item.order_index,
+        "is_todo": item.is_todo,
+        "is_recurring": item.is_recurring,
+        "recurring_interval": item.recurring_interval,
+        "last_done_at": item.last_done_at,
+        "src": item.src,
+        "start_note": item.start_note,
+        "is_done": item.is_done,
+        "variation_list_id": item.variation_list_id,
+        "variation_mode": item.variation_mode,
+        "variation_index": item.variation_index,
+        "created_at": item.created_at,
+        "updated_at": item.updated_at,
+        "contexts": [ic.context for ic in item.item_contexts],
+        "current_variation": _variation_value(item),
+        "has_children": bool(kept_children),
+        "breadcrumb": [],
+        "children": kept_children,
+    }
+
+
+def get_tree(
+    db: Session,
+    context_ids: list[int] | None = None,
+    root_ids: list[int] | None = None,
+    hide_done: bool = False,
+) -> list[dict]:
+    """Geef de geneste boom terug, gefilterd op context/project en optioneel
+    met afgevinkte items verborgen.
+
+    - Een item blijft staan als het zelf (of een voorouder) de gekozen context
+      heeft, of als er onder het item een treffer zit (pad naar treffer).
+    - `hide_done` verbergt afgevinkte items (en daarmee hun subtak).
+    """
+    all_items = (
+        db.query(Item)
+        .options(
+            selectinload(Item.item_contexts).selectinload(ItemContext.context),
+            selectinload(Item.variation_list),
+        )
+        .order_by(Item.order_index)
+        .all()
+    )
+    by_parent: dict[int | None, list[Item]] = defaultdict(list)
+    for it in all_items:
+        by_parent[it.parent_id].append(it)
+
+    ctx_set = set(context_ids) if context_ids else None
+    root_set = set(root_ids) if root_ids else None
+
+    def build(item: Item, ancestor_match: bool) -> dict | None:
+        if hide_done and item.is_done:
+            return None
+        direct = ctx_set is not None and bool(
+            {ic.context_id for ic in item.item_contexts} & ctx_set
+        )
+        match = ancestor_match or direct
+        kept = [
+            node
+            for child in by_parent.get(item.id, [])
+            if (node := build(child, match)) is not None
+        ]
+        if ctx_set is not None and not match and not kept:
+            return None
+        return _tree_node(item, kept)
+
+    roots = by_parent.get(None, [])
+    if root_set is not None:
+        roots = [r for r in roots if r.id in root_set]
+    return [node for r in roots if (node := build(r, False)) is not None]
+
+
 def get_children(db: Session, item_id: int) -> list[Item]:
     _load_item(db, item_id)
     items = (
@@ -98,8 +186,7 @@ def get_item(db: Session, item_id: int) -> Item:
 
 
 def create_item(db: Session, data: ItemCreate) -> Item:
-    if data.parent_id is not None:
-        _load_item(db, data.parent_id)
+    parent = _load_item(db, data.parent_id) if data.parent_id is not None else None
     order_index = _next_order_index(db, data.parent_id)
     item = Item(
         parent_id=data.parent_id,
@@ -108,8 +195,13 @@ def create_item(db: Session, data: ItemCreate) -> Item:
         src=data.src,
         start_note=data.start_note,
         order_index=order_index,
+        is_todo=True,   # nieuw item is een leaf en wordt standaard een todo
     )
     db.add(item)
+    # Een ouder is geen leaf meer en kan dus geen todo blijven.
+    if parent is not None and parent.is_todo:
+        parent.is_todo = False
+        parent.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(item)
     return get_item(db, item.id)
@@ -134,6 +226,13 @@ def move_item(db: Session, item_id: int, data: ItemMoveRequest) -> Item:
 
     old_parent = item.parent_id
     item.parent_id = data.parent_id
+
+    # De nieuwe ouder is geen leaf meer en kan dus geen todo blijven.
+    if data.parent_id is not None:
+        new_parent = db.get(Item, data.parent_id)
+        if new_parent and new_parent.is_todo:
+            new_parent.is_todo = False
+            new_parent.updated_at = datetime.utcnow()
 
     siblings = (
         db.query(Item)

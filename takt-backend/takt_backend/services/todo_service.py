@@ -61,17 +61,36 @@ def _get_root_id(db: Session, item: Item) -> int:
     return current.id
 
 
-def list_todos(db: Session, context_ids: list[int], root_ids: list[int]) -> list[Item]:
-    query = (
+def list_todos(
+    db: Session,
+    context_ids: list[int],
+    root_ids: list[int],
+    include_done: bool = False,
+) -> list[Item]:
+    opts = [
+        selectinload(Item.item_contexts).selectinload(ItemContext.context),
+        selectinload(Item.variation_list),
+    ]
+    open_items = (
         db.query(Item)
-        .filter(Item.is_todo == True)
-        .options(
-            selectinload(Item.item_contexts).selectinload(ItemContext.context),
-            selectinload(Item.variation_list),
-        )
-        .order_by(Item.last_done_at.asc())
+        .filter(Item.is_todo == True, Item.is_done == False)
+        .options(*opts)
+        .all()
     )
-    items = query.all()
+    items = open_items
+
+    if include_done:
+        done_items = (
+            db.query(Item)
+            .join(TodoLog, TodoLog.item_id == Item.id)
+            .filter(Item.is_done == True, TodoLog.action == "DONE")
+            .options(*opts)
+            .distinct()
+            .all()
+        )
+        # Dubbele (open én afgevinkt) uitsluiten op id.
+        seen = {i.id for i in open_items}
+        items = open_items + [i for i in done_items if i.id not in seen]
 
     if context_ids:
         ctx_set = set(context_ids)
@@ -81,7 +100,11 @@ def list_todos(db: Session, context_ids: list[int], root_ids: list[int]) -> list
         root_set = set(root_ids)
         items = [i for i in items if _get_root_id(db, i) in root_set]
 
-    items = [i for i in items if not i.is_recurring or _is_due(i)]
+    # Recurring items alleen tonen wanneer ze "due" zijn; afgevinkte items blijven.
+    items = [i for i in items if i.is_done or not i.is_recurring or _is_due(i)]
+
+    # Sorteer op last_done_at oplopend, met nog-nooit-gedane items (NULL) vooraan.
+    items.sort(key=lambda i: (i.last_done_at is not None, i.last_done_at or datetime.min))
 
     return [_enrich(i, db, breadcrumb=True) for i in items]
 
@@ -132,16 +155,39 @@ def mark_done(db: Session, item_id: int, note: str | None) -> Item:
     return get_item(db, item_id)
 
 
-def list_history(db: Session, limit: int = 500) -> list[dict]:
+def list_history(
+    db: Session,
+    context_ids: list[int] | None = None,
+    root_ids: list[int] | None = None,
+    limit: int = 500,
+) -> list[dict]:
     logs = (
         db.query(TodoLog)
         .order_by(TodoLog.completed_at.desc())
-        .limit(limit)
         .all()
     )
+    ctx_set = set(context_ids) if context_ids else None
+    root_set = set(root_ids) if root_ids else None
+    filtering = ctx_set is not None or root_set is not None
+
     result = []
+    item_cache: dict[int, Item | None] = {}
     for log in logs:
-        item = db.get(Item, log.item_id)
+        if log.item_id not in item_cache:
+            item_cache[log.item_id] = db.get(
+                Item, log.item_id,
+                options=[selectinload(Item.item_contexts)],
+            )
+        item = item_cache[log.item_id]
+
+        if filtering:
+            if item is None:
+                continue  # verwijderd item kan niet aan een actief filter voldoen
+            if root_set is not None and _get_root_id(db, item) not in root_set:
+                continue
+            if ctx_set is not None and not (_inherited_context_ids(db, item) & ctx_set):
+                continue
+
         breadcrumb = _build_breadcrumb(db, item) if item else []
         result.append({
             "id": log.id,
@@ -153,6 +199,8 @@ def list_history(db: Session, limit: int = 500) -> list[dict]:
             "variation_value": log.variation_value,
             "completed_at": log.completed_at,
         })
+        if len(result) >= limit:
+            break
     return result
 
 

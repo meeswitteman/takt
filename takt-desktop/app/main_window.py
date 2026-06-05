@@ -1,13 +1,14 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QPushButton, QMenu, QMessageBox, QFileDialog,
+    QWidget, QVBoxLayout,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
 
 from app.projects_tab import ProjectsTab
 from app.todos_tab import TodosTab
-from app.filter_tab import FilterTab
+from app.filter_bar import FilterBar
 from app.history_tab import HistoryTab
 from app import client, config as cfg
 from app import theme as theme_module
@@ -25,32 +26,41 @@ class MainWindow(QMainWindow):
 
         self._projects = ProjectsTab()
         self._todos = TodosTab()
-        self._filter_tab = FilterTab(
+        self._history = HistoryTab()
+
+        self._filter_bar = FilterBar(
             initial_ctx_ids=self._settings.get("filter_context_ids", []),
             initial_root_ids=self._settings.get("filter_root_ids", []),
+            initial_hide_done=self._settings.get("filter_hide_done", False),
         )
-        self._history = HistoryTab()
 
         self._tabs = QTabWidget()
         self._tabs.addTab(self._projects, "Project")
         self._tabs.addTab(self._todos, "Todo")
-        self._tabs.addTab(self._filter_tab, "Filter")
         self._tabs.addTab(self._history, "Geschiedenis")
         self._tabs.currentChanged.connect(self._on_tab_changed)
-        self.setCentralWidget(self._tabs)
+
+        central = QWidget()
+        col = QVBoxLayout(central)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        col.addWidget(self._filter_bar)
+        col.addWidget(self._tabs)
+        self.setCentralWidget(central)
 
         self._build_menu_button()
-        self._filter_tab.filter_changed.connect(self._apply_global_filter)
+        self._filter_bar.filter_changed.connect(self._apply_global_filter)
 
         self._projects._delegate.spacing = self._settings.get("item_spacing", 12)
         self._update_title()
 
-        # Opgeslagen filter toepassen (signal werd al gefired vóór de verbinding)
-        ctx   = self._filter_tab.context_ids
-        roots = self._filter_tab.root_ids
-        if ctx or roots:
-            self._projects.apply_filter(roots)
-            self._todos.apply_filter(ctx, roots)
+        # Opgeslagen filter direct toepassen op alle schermen.
+        self._apply_global_filter(
+            self._filter_bar.context_ids,
+            self._filter_bar.root_ids,
+            self._filter_bar.hide_done,
+            persist=False,
+        )
 
     # ------------------------------------------------------------------
     # Menu-knop (hamburger, rechtsboven naast de tabs)
@@ -92,9 +102,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_tab_changed(self, index: int):
+        # 'verberg gedaan' heeft geen zin op Geschiedenis (alles is gedaan).
+        self._filter_bar.set_hide_done_enabled(index != 2)
         if index == 1:
             self._todos.refresh()
-        elif index == 3:
+        elif index == 2:
             self._history.refresh()
 
     # ------------------------------------------------------------------
@@ -130,12 +142,16 @@ class MainWindow(QMainWindow):
     # Filter
     # ------------------------------------------------------------------
 
-    def _apply_global_filter(self, context_ids: list, root_ids: list):
-        self._projects.apply_filter(root_ids)
-        self._todos.apply_filter(context_ids, root_ids)
-        self._settings["filter_context_ids"] = context_ids
-        self._settings["filter_root_ids"] = root_ids
-        cfg.save(self._settings)
+    def _apply_global_filter(self, context_ids: list, root_ids: list,
+                             hide_done: bool, persist: bool = True):
+        self._projects.apply_filter(context_ids, root_ids, hide_done)
+        self._todos.apply_filter(context_ids, root_ids, hide_done)
+        self._history.apply_filter(context_ids, root_ids)
+        if persist:
+            self._settings["filter_context_ids"] = context_ids
+            self._settings["filter_root_ids"] = root_ids
+            self._settings["filter_hide_done"] = hide_done
+            cfg.save(self._settings)
 
     # ------------------------------------------------------------------
     # Beheer
@@ -144,9 +160,9 @@ class MainWindow(QMainWindow):
     def _open_contexts(self):
         from app.management import ContextsDialog
         ContextsDialog(self).exec()
+        self._filter_bar.reload()
         self._projects._load()
         self._todos.refresh()
-        self._filter_tab.reload()
 
     def _open_variations(self):
         from app.management import VariationsDialog

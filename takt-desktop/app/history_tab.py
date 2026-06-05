@@ -67,6 +67,8 @@ class HistoryCard(QFrame):
 class HistoryTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._context_ids: list[int] = []
+        self._root_ids: list[int] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -92,9 +94,16 @@ class HistoryTab(QWidget):
         )
         layout.addWidget(self._list)
 
+    def apply_filter(self, context_ids: list[int], root_ids: list[int]):
+        self._context_ids = context_ids
+        self._root_ids = root_ids
+        self.refresh()
+
     def refresh(self):
         try:
-            entries = client.get_all_history()
+            entries = client.get_all_history(
+                self._context_ids or None, self._root_ids or None,
+            )
         except Exception as e:
             show_error(str(e), self)
             return

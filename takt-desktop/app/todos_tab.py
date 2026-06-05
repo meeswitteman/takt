@@ -42,9 +42,13 @@ class TodoCard(QFrame):
     def __init__(self, item_data: dict, parent=None):
         super().__init__(parent)
         self.item_data = item_data
+        self._done = bool(item_data.get("is_done"))
         self.setObjectName("todo-card")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        if self._done:
+            self.setProperty("done", "true")
+            self.setStyleSheet("#todo-card[done=\"true\"] { color: #777; }")
         self._build()
 
     def _build(self):
@@ -64,7 +68,10 @@ class TodoCard(QFrame):
         title = data["title"]
         if data.get("is_recurring"):
             title += "  - " + _interval_label(data.get("recurring_interval"))
-        title_lbl = QLabel(f"<b>{title}</b>")
+        if self._done:
+            title_lbl = QLabel(f'<s style="color:#777;">{title}</s>')
+        else:
+            title_lbl = QLabel(f"<b>{title}</b>")
         title_lbl.setWordWrap(True)
         info.addWidget(title_lbl)
 
@@ -98,11 +105,16 @@ class TodoCard(QFrame):
 
         outer.addLayout(info, stretch=1)
 
-        btn = QPushButton("Klaar")
-        btn.setObjectName("done-btn")
-        btn.setFixedWidth(70)
-        btn.clicked.connect(lambda: self.done_requested.emit(self.item_data))
-        outer.addWidget(btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        if self._done:
+            done_lbl = QLabel("✓ gedaan")
+            done_lbl.setStyleSheet("color: #6a9955;")
+            outer.addWidget(done_lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
+        else:
+            btn = QPushButton("Klaar")
+            btn.setObjectName("done-btn")
+            btn.setFixedWidth(70)
+            btn.clicked.connect(lambda: self.done_requested.emit(self.item_data))
+            outer.addWidget(btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
 
 class TodosTab(QWidget):
@@ -110,6 +122,7 @@ class TodosTab(QWidget):
         super().__init__(parent)
         self._context_ids: list[int] = []
         self._root_ids: list[int] = []
+        self._hide_done: bool = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -145,11 +158,10 @@ class TodosTab(QWidget):
     def _make_item(self, data: dict) -> tuple[QListWidgetItem, TodoCard]:
         item = QListWidgetItem()
         item.setData(Qt.ItemDataRole.UserRole, data)
-        item.setFlags(
-            Qt.ItemFlag.ItemIsEnabled |
-            Qt.ItemFlag.ItemIsSelectable |
-            Qt.ItemFlag.ItemIsDragEnabled
-        )
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if not data.get("is_done"):
+            flags |= Qt.ItemFlag.ItemIsDragEnabled   # gedane todo's niet versleepbaar
+        item.setFlags(flags)
         card = TodoCard(data)
         card.done_requested.connect(self._on_done)
         card.adjustSize()
@@ -164,20 +176,28 @@ class TodosTab(QWidget):
 
     # ------------------------------------------------------------------
 
-    def apply_filter(self, context_ids: list[int], root_ids: list[int]):
+    def apply_filter(self, context_ids: list[int], root_ids: list[int], hide_done: bool):
         self._context_ids = context_ids
         self._root_ids = root_ids
+        self._hide_done = hide_done
         self.refresh()
 
     def refresh(self):
         try:
-            todos = client.get_todos(self._context_ids or None, self._root_ids or None)
+            todos = client.get_todos(
+                self._context_ids or None, self._root_ids or None,
+                include_done=not self._hide_done,
+            )
         except Exception as e:
             show_error(str(e), self)
             return
 
         self._list.clear()
-        self._count_lbl.setText(f"{len(todos)} todo's")
+        open_n = sum(1 for t in todos if not t.get("is_done"))
+        done_n = len(todos) - open_n
+        self._count_lbl.setText(
+            f"{open_n} todo's" + (f"  ·  {done_n} gedaan" if done_n else "")
+        )
 
         for data in todos:
             item, card = self._make_item(data)

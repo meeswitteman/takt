@@ -53,6 +53,18 @@ def _delete(path: str):
 def get_roots():
     return _get("/api/v1/items")
 
+def get_tree(context_ids: list[int] | None = None, root_ids: list[int] | None = None,
+             hide_done: bool = False):
+    params = []
+    for cid in (context_ids or []):
+        params.append(("context_id", cid))
+    for rid in (root_ids or []):
+        params.append(("root_id", rid))
+    params.append(("hide_done", "true" if hide_done else "false"))
+    r = _http().get(f"{BASE_URL}/api/v1/items/tree", params=params)
+    r.raise_for_status()
+    return r.json()
+
 def get_children(item_id: int):
     return _get(f"/api/v1/items/{item_id}/children")
 
@@ -93,12 +105,14 @@ def get_variations():
 def set_contexts(item_id: int, context_ids: list[int]):
     return _put(f"/api/v1/items/{item_id}/contexts", context_ids)
 
-def get_todos(context_ids: list[int] | None = None, root_ids: list[int] | None = None):
+def get_todos(context_ids: list[int] | None = None, root_ids: list[int] | None = None,
+              include_done: bool = False):
     params = []
     for cid in (context_ids or []):
         params.append(("context_id", cid))
     for rid in (root_ids or []):
         params.append(("root_id", rid))
+    params.append(("include_done", "true" if include_done else "false"))
     r = _http().get(f"{BASE_URL}/api/v1/todos", params=params)
     r.raise_for_status()
     return r.json()
@@ -109,8 +123,15 @@ def mark_done(item_id: int, note: str | None = None):
 def get_history(item_id: int):
     return _get(f"/api/v1/todos/{item_id}/history")
 
-def get_all_history():
-    return _get("/api/v1/todos/history")
+def get_all_history(context_ids: list[int] | None = None, root_ids: list[int] | None = None):
+    params = []
+    for cid in (context_ids or []):
+        params.append(("context_id", cid))
+    for rid in (root_ids or []):
+        params.append(("root_id", rid))
+    r = _http().get(f"{BASE_URL}/api/v1/todos/history", params=params)
+    r.raise_for_status()
+    return r.json()
 
 def delete_history(before: str | None = None) -> int:
     params = {"before": before} if before else None

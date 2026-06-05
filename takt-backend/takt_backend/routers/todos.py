@@ -12,9 +12,10 @@ router = APIRouter(prefix="/api/v1/todos", tags=["todos"])
 def list_todos(
     context_id: list[int] = Query(default=[]),
     root_id: list[int] = Query(default=[]),
+    include_done: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
-    return todo_service.list_todos(db, context_id, root_id)
+    return todo_service.list_todos(db, context_id, root_id, include_done)
 
 
 @router.post("/{item_id}/done", response_model=ItemOut)
@@ -23,8 +24,12 @@ def mark_done(item_id: int, data: TodoDoneRequest, db: Session = Depends(get_db)
 
 
 @router.get("/history", response_model=list[TodoLogOut])
-def list_history(db: Session = Depends(get_db)):
-    return todo_service.list_history(db)
+def list_history(
+    context_id: list[int] = Query(default=[]),
+    root_id: list[int] = Query(default=[]),
+    db: Session = Depends(get_db),
+):
+    return todo_service.list_history(db, context_id, root_id)
 
 
 @router.delete("/history")
