@@ -53,6 +53,7 @@ class MainWindow(QMainWindow):
 
         # Opgeslagen voorkeuren direct toepassen op alle schermen.
         self._projects.set_idle_timeout(self._settings.get("edit_idle_timeout", 3))
+        self._filter_bar.set_idle_timeout(self._settings.get("edit_idle_timeout", 3))
         self._projects.set_show_descriptions(self._filter_bar.show_descriptions)
         self._apply_global_filter(
             self._filter_bar.context_ids,
@@ -203,6 +204,7 @@ class MainWindow(QMainWindow):
 
     def _apply_idle(self, seconds: int):
         self._projects.set_idle_timeout(seconds)
+        self._filter_bar.set_idle_timeout(seconds)
 
     def _open_settings(self):
         from app.management import SettingsDialog

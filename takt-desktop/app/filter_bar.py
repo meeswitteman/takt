@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QMenu, QWidgetAction,
     QLineEdit, QListWidget, QListWidgetItem, QCheckBox, QLabel,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
 from app import client
 from app.dialogs import show_error
@@ -33,8 +33,13 @@ class MultiSelectDropdown(QPushButton):
         super().__init__(parent)
         self._prefix = prefix
         self._suppress = False
+        self._idle_ms = 3000
         self.setObjectName("filter-drop")
         self.setMinimumWidth(130)
+
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setSingleShot(True)
+        self._idle_timer.timeout.connect(self._on_idle)
 
         self._menu = QMenu(self)
         self.setMenu(self._menu)
@@ -62,9 +67,27 @@ class MultiSelectDropdown(QPushButton):
         action = QWidgetAction(self._menu)
         action.setDefaultWidget(panel)
         self._menu.addAction(action)
-        self._menu.aboutToShow.connect(lambda: (self._search.clear(), self._search.setFocus()))
+        self._menu.aboutToShow.connect(self._on_menu_shown)
+        self._menu.aboutToHide.connect(self._idle_timer.stop)
 
         self._update_label()
+
+    # -- auto-sluiten bij inactiviteit ----------------------------------
+    def set_idle_timeout(self, seconds: float):
+        self._idle_ms = max(1, int(seconds)) * 1000
+
+    def _on_menu_shown(self):
+        self._search.clear()
+        self._search.setFocus()
+        self._idle_timer.start(self._idle_ms)
+
+    def _reset_idle(self):
+        if self._menu.isVisible():
+            self._idle_timer.start(self._idle_ms)
+
+    def _on_idle(self):
+        # Sluit het menu met de gemaakte keuzes (die zijn al toegepast).
+        self._menu.hide()
 
     # -- data -----------------------------------------------------------
     def set_items(self, items: list[tuple[int, str]]):
@@ -105,6 +128,7 @@ class MultiSelectDropdown(QPushButton):
         ]
 
     def clear(self):
+        self._reset_idle()
         if not self.selected_ids:
             return
         self.set_selection([])
@@ -112,6 +136,7 @@ class MultiSelectDropdown(QPushButton):
 
     # -- intern ---------------------------------------------------------
     def _filter_list(self, text: str):
+        self._reset_idle()
         text = text.lower()
         for i in range(self._list.count()):
             it = self._list.item(i)
@@ -120,6 +145,7 @@ class MultiSelectDropdown(QPushButton):
     def _on_item_changed(self, _item):
         if self._suppress:
             return
+        self._reset_idle()
         self._update_label()
         self.changed.emit()
 
@@ -192,6 +218,10 @@ class FilterBar(QWidget):
 
     def set_done_enabled(self, enabled: bool):
         self._done.setEnabled(enabled)
+
+    def set_idle_timeout(self, seconds: float):
+        self._ctx.set_idle_timeout(seconds)
+        self._proj.set_idle_timeout(seconds)
 
     def clear_filter(self):
         self._ctx.set_selection([])
