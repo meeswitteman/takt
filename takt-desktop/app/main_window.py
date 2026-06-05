@@ -39,7 +39,7 @@ class MainWindow(QMainWindow):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._projects, "Project")
         self._tabs.addTab(self._todos, "Todo")
-        self._tabs.addTab(self._history, "done")
+        self._tabs.addTab(self._history, "Done")
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         self.setCentralWidget(self._tabs)
