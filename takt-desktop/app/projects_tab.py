@@ -4,7 +4,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QApplication,
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QMenu, QLabel,
-    QPlainTextEdit, QFrame,
+    QPlainTextEdit, QFrame, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
@@ -142,6 +142,25 @@ class OutlineTree(QTreeWidget):
             else:
                 self.enterPressed.emit()        # Enter = nieuwe regel
             return
+
+        # Beginnen met typen op een geselecteerd item opent de naam-editor en
+        # plaatst de getypte tekst achter de bestaande naam (zonder te wissen).
+        if (self.state() != QAbstractItemView.State.EditingState
+                and e.text() and e.text().isprintable()
+                and not (e.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                                          | Qt.KeyboardModifier.AltModifier
+                                          | Qt.KeyboardModifier.MetaModifier))):
+            node = self.currentItem()
+            if node is not None:
+                self.editItem(node, 0)
+                editor = self.findChild(QLineEdit)
+                if editor is not None:
+                    editor.deselect()
+                    editor.setCursorPosition(len(editor.text()))
+                    editor.insert(e.text())
+                    editor.textEdited.emit(editor.text())  # markeer als wijziging
+                return
+
         super().keyPressEvent(e)
 
 
