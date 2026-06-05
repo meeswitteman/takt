@@ -150,8 +150,17 @@ class MultiSelectDropdown(QPushButton):
         self.changed.emit()
 
     def _update_label(self):
-        n = len(self.selected_ids)
-        self.setText(f"{self._prefix}: {'alle' if n == 0 else n}")
+        checked = [self._list.item(i) for i in range(self._list.count())
+                   if self._list.item(i).checkState() == Qt.CheckState.Checked]
+        n = len(checked)
+        if n == 0:
+            val = "alle"
+        elif n == 1:
+            name = checked[0].text()
+            val = name if len(name) <= 20 else name[:19] + "…"
+        else:
+            val = str(n)
+        self.setText(f"{self._prefix}: {val}")
         self.setProperty("active", "true" if n else "false")
         self.style().unpolish(self)
         self.style().polish(self)
