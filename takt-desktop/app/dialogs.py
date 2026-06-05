@@ -412,7 +412,7 @@ def confirm_delete(title: str, parent=None) -> bool:
         "Verwijderen",
         f"Verwijder '{title}' en alle subitems?",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
     )
     return result == QMessageBox.StandardButton.Yes
 
