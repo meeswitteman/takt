@@ -1,6 +1,8 @@
-from PyQt6.QtWidgets import QStyledItemDelegate, QApplication, QStyle, QStyleOptionViewItem
+from PyQt6.QtWidgets import (
+    QStyledItemDelegate, QAbstractItemDelegate, QApplication, QStyle, QStyleOptionViewItem,
+)
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPalette, QPen, QFont, QPolygonF, QFontMetrics
-from PyQt6.QtCore import Qt, QRect, QRectF, QSize, QPointF
+from PyQt6.QtCore import Qt, QRect, QRectF, QSize, QPointF, QTimer
 
 from app import theme as theme_module
 
@@ -33,11 +35,47 @@ def _interval_label(interval) -> str:
 
 
 class TitleChipsDelegate(QStyledItemDelegate):
+    IDLE_TIMEOUT_MS = 3000   # sluit de editor na zoveel ms zonder wijziging
+
     def __init__(self, tree, spacing: int = 12):
         super().__init__(tree)
         self._tree = tree
         self.spacing = spacing
         self.show_descriptions = False
+        self._idle_timer: QTimer | None = None
+        self._idle_editor = None
+
+    # ------------------------------------------------------------------
+    # Auto-sluiten bij inactiviteit (na single-click in edit, niets gewijzigd)
+    # ------------------------------------------------------------------
+
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        # Niet voor net aangemaakte (lege) items: die mogen rustig blijven staan.
+        if not index.data(ITEM_PENDING):
+            self._arm_idle(editor)
+        return editor
+
+    def _arm_idle(self, editor):
+        if self._idle_timer is None:
+            self._idle_timer = QTimer(self)
+            self._idle_timer.setSingleShot(True)
+            self._idle_timer.setInterval(self.IDLE_TIMEOUT_MS)
+            self._idle_timer.timeout.connect(self._on_idle_timeout)
+        self._idle_editor = editor
+        if hasattr(editor, "textEdited"):
+            editor.textEdited.connect(self._disarm_idle)   # wijziging → niet meer sluiten
+        editor.destroyed.connect(lambda *_: self._disarm_idle())
+        self._idle_timer.start()
+
+    def _disarm_idle(self, *args):
+        if self._idle_timer is not None:
+            self._idle_timer.stop()
+
+    def _on_idle_timeout(self):
+        editor, self._idle_editor = self._idle_editor, None
+        if editor is not None:
+            self.closeEditor.emit(editor, QAbstractItemDelegate.EndEditHint.RevertModelCache)
 
     def line_height(self) -> int:
         """Hoogte van de titelregel (zonder eventuele omschrijvingsregel)."""

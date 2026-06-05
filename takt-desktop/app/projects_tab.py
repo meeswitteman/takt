@@ -156,6 +156,7 @@ class ProjectsTab(QWidget):
         self._pending_node: QTreeWidgetItem | None = None
         self._note_editor: NoteEditor | None = None
         self._note_node: QTreeWidgetItem | None = None
+        self._note_idle: QTimer | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -418,13 +419,22 @@ class ProjectsTab(QWidget):
         ed.committed.connect(lambda: self._close_note_editor(commit=True))
         ed.cancelled.connect(lambda: self._close_note_editor(commit=False))
         ed.lostFocus.connect(lambda: self._close_note_editor(commit=True))
+        # Sluit na 3s zonder wijziging weer af.
+        self._note_idle = QTimer(self)
+        self._note_idle.setSingleShot(True)
+        self._note_idle.timeout.connect(lambda: self._close_note_editor(commit=False))
+        ed.textChanged.connect(self._note_idle.stop)   # wijziging → niet meer sluiten
         self._note_editor = ed
         self._note_node = node
         ed.show()
         ed.setFocus()
         ed.moveCursor(ed.textCursor().MoveOperation.End)
+        self._note_idle.start(3000)
 
     def _close_note_editor(self, commit: bool):
+        if self._note_idle is not None:
+            self._note_idle.stop()
+            self._note_idle = None
         ed, node = self._note_editor, self._note_node
         if ed is None:
             return
