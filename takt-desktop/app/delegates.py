@@ -68,6 +68,41 @@ class TitleChipsDelegate(QStyledItemDelegate):
         expanded = bool(opt.state & QStyle.StateFlag.State_Open)
         collapsed = has_children and not expanded
 
+        cx = left + CHEVRON_W + BULLET_W // 2   # x van de bullet (ook voor gidslijnen)
+
+        # ----- Workflowy-gidslijnen -----
+        # Dunne verticale lijn die de bullet van een ouder met die van zijn
+        # subitems verbindt. Per rij tekenen we een segment in de kolom van
+        # elke voorouder; opeenvolgende rijen vormen zo een doorlopende lijn.
+        indent = self._tree.indentation()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        painter.setPen(QPen(QColor(pal["border"]), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Verbinding van deze (uitgeklapte) ouder omlaag naar zijn eerste kind.
+        if has_children and expanded:
+            painter.drawLine(cx, cy, cx, y + h)
+
+        # Segmenten voor elke voorouder, met nette terminatie bij het laatste kind.
+        child = index
+        anc = index.parent()
+        level = 1
+        while anc.isValid():
+            x_anc = left - level * indent + CHEVRON_W + BULLET_W // 2
+            siblings = anc.model().rowCount(anc)
+            is_last = child.row() == siblings - 1
+            if not is_last:
+                painter.drawLine(x_anc, y, x_anc, y + h)
+            elif child == index:
+                # Directe laatste kind-rij: stop bij de bullet i.p.v. doorlopen.
+                painter.drawLine(x_anc, y, x_anc, cy)
+            # else: diepere afstammeling onder het laatste kind → geen lijn
+            child = anc
+            anc = anc.parent()
+            level += 1
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
         # ----- Chevron (uitklap-driehoekje, draait mee) -----
         if has_children:
             chx = left + CHEVRON_W // 2
@@ -80,8 +115,6 @@ class TitleChipsDelegate(QStyledItemDelegate):
             painter.drawPolygon(QPolygonF(pts))
 
         # ----- Bullet (+ ring bij ingeklapte kinderen) -----
-        cx = left + CHEVRON_W + BULLET_W // 2
-
         if collapsed:
             ring = QColor(pal["bullet"])
             ring.setAlpha(80)
