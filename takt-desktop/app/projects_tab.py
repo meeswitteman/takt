@@ -157,6 +157,7 @@ class ProjectsTab(QWidget):
         self._note_editor: NoteEditor | None = None
         self._note_node: QTreeWidgetItem | None = None
         self._note_idle: QTimer | None = None
+        self._idle_timeout_ms = 3000
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -399,6 +400,15 @@ class ProjectsTab(QWidget):
         self.tree.scheduleDelayedItemsLayout()
         self.tree.viewport().update()
 
+    def set_idle_timeout(self, seconds: float):
+        """Tijd zonder wijziging waarna een editor automatisch sluit."""
+        self._idle_timeout_ms = max(1, int(seconds)) * 1000
+        self._delegate.idle_timeout_ms = self._idle_timeout_ms
+
+    def _note_idle_close(self):
+        self._close_note_editor(commit=False)
+        self.tree.setFocus()   # zodat Ctrl/Cmd+Enter daarna blijft werken
+
     def _edit_description_selected(self):
         node = self._selected_node()
         if node is not None:
@@ -422,14 +432,14 @@ class ProjectsTab(QWidget):
         # Sluit na 3s zonder wijziging weer af.
         self._note_idle = QTimer(self)
         self._note_idle.setSingleShot(True)
-        self._note_idle.timeout.connect(lambda: self._close_note_editor(commit=False))
+        self._note_idle.timeout.connect(self._note_idle_close)
         ed.textChanged.connect(self._note_idle.stop)   # wijziging → niet meer sluiten
         self._note_editor = ed
         self._note_node = node
         ed.show()
         ed.setFocus()
         ed.moveCursor(ed.textCursor().MoveOperation.End)
-        self._note_idle.start(3000)
+        self._note_idle.start(self._idle_timeout_ms)
 
     def _close_note_editor(self, commit: bool):
         if self._note_idle is not None:

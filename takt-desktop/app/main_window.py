@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
         self._update_title()
 
         # Opgeslagen voorkeuren direct toepassen op alle schermen.
+        self._projects.set_idle_timeout(self._settings.get("edit_idle_timeout", 3))
         self._projects.set_show_descriptions(self._filter_bar.show_descriptions)
         self._apply_global_filter(
             self._filter_bar.context_ids,
@@ -200,10 +201,14 @@ class MainWindow(QMainWindow):
         self._todos.refresh()
         self._history.refresh()
 
+    def _apply_idle(self, seconds: int):
+        self._projects.set_idle_timeout(seconds)
+
     def _open_settings(self):
         from app.management import SettingsDialog
         dlg = SettingsDialog(on_palette_change=self._apply_palette, on_font_change=self._apply_font,
-                             on_spacing_change=self._apply_spacing, parent=self)
+                             on_spacing_change=self._apply_spacing, on_idle_change=self._apply_idle,
+                             parent=self)
         if dlg.exec() == dlg.DialogCode.Accepted:
             self._settings = cfg.load()
 

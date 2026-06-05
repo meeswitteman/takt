@@ -42,6 +42,7 @@ class TitleChipsDelegate(QStyledItemDelegate):
         self._tree = tree
         self.spacing = spacing
         self.show_descriptions = False
+        self.idle_timeout_ms = self.IDLE_TIMEOUT_MS
         self._idle_timer: QTimer | None = None
         self._idle_editor = None
 
@@ -60,13 +61,12 @@ class TitleChipsDelegate(QStyledItemDelegate):
         if self._idle_timer is None:
             self._idle_timer = QTimer(self)
             self._idle_timer.setSingleShot(True)
-            self._idle_timer.setInterval(self.IDLE_TIMEOUT_MS)
             self._idle_timer.timeout.connect(self._on_idle_timeout)
         self._idle_editor = editor
         if hasattr(editor, "textEdited"):
             editor.textEdited.connect(self._disarm_idle)   # wijziging → niet meer sluiten
         editor.destroyed.connect(lambda *_: self._disarm_idle())
-        self._idle_timer.start()
+        self._idle_timer.start(self.idle_timeout_ms)
 
     def _disarm_idle(self, *args):
         if self._idle_timer is not None:
@@ -76,6 +76,8 @@ class TitleChipsDelegate(QStyledItemDelegate):
         editor, self._idle_editor = self._idle_editor, None
         if editor is not None:
             self.closeEditor.emit(editor, QAbstractItemDelegate.EndEditHint.RevertModelCache)
+            # Focus terug naar de boom zodat sneltoetsen (Ctrl/Cmd+Enter) blijven werken.
+            self._tree.setFocus()
 
     def line_height(self) -> int:
         """Hoogte van de titelregel (zonder eventuele omschrijvingsregel)."""

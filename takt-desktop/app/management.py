@@ -291,13 +291,15 @@ class VariationsDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 class SettingsDialog(QDialog):
-    def __init__(self, on_palette_change=None, on_font_change=None, on_spacing_change=None, parent=None):
+    def __init__(self, on_palette_change=None, on_font_change=None, on_spacing_change=None,
+                 on_idle_change=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Instellingen")
         self.setMinimumWidth(400)
         self._on_palette_change = on_palette_change
         self._on_font_change = on_font_change
         self._on_spacing_change = on_spacing_change
+        self._on_idle_change = on_idle_change
         self._settings = cfg.load()
         self._build()
 
@@ -353,6 +355,12 @@ class SettingsDialog(QDialog):
         self._spacing.setSuffix(" px")
         form.addRow("Regelafstand (projecten):", self._spacing)
 
+        self._idle = QSpinBox()
+        self._idle.setRange(1, 60)
+        self._idle.setValue(self._settings.get("edit_idle_timeout", 3))
+        self._idle.setSuffix(" s")
+        form.addRow("Auto-sluiten edit na:", self._idle)
+
         layout.addLayout(form)
 
         btns = QDialogButtonBox(
@@ -371,6 +379,7 @@ class SettingsDialog(QDialog):
             "font_family": self._font_combo.currentFont().family(),
             "font_size": self._font_size.value(),
             "item_spacing": self._spacing.value(),
+            "edit_idle_timeout": self._idle.value(),
         }
         cfg.save(new_settings)
 
@@ -382,6 +391,8 @@ class SettingsDialog(QDialog):
             self._on_font_change(new_settings["font_family"], new_settings["font_size"])
         if self._on_spacing_change:
             self._on_spacing_change(new_settings["item_spacing"])
+        if self._on_idle_change:
+            self._on_idle_change(new_settings["edit_idle_timeout"])
 
         # Update backend URL in client module en reset verbinding
         import app.client as client_mod

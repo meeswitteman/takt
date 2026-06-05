@@ -12,6 +12,8 @@ _DEFAULTS = {
     "font_family": "Segoe UI",
     "font_size": 10,
     "item_spacing": 12,
+    "edit_idle_timeout": 3,
+
     "filter_context_ids": [],
     "filter_root_ids": [],
     "db_path": "",
