@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QStyledItemDelegate, QApplication, QStyle, QStyleOptionViewItem
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPalette, QPen, QFont, QPolygonF
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPalette, QPen, QFont, QPolygonF, QFontMetrics
 from PyQt6.QtCore import Qt, QRect, QRectF, QSize, QPointF
 
 from app import theme as theme_module
@@ -37,6 +37,18 @@ class TitleChipsDelegate(QStyledItemDelegate):
         super().__init__(tree)
         self._tree = tree
         self.spacing = spacing
+        self.show_descriptions = False
+
+    def line_height(self) -> int:
+        """Hoogte van de titelregel (zonder eventuele omschrijvingsregel)."""
+        fm = QFontMetrics(self._tree.font())
+        return max(fm.height() + self.spacing, CHIP_H + 10)
+
+    def _description(self, index) -> str:
+        if not self.show_descriptions:
+            return ""
+        data = index.data(ITEM_DATA_ROLE) or {}
+        return (data.get("description") or "").strip()
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index):
         opt = QStyleOptionViewItem(option)
@@ -62,7 +74,8 @@ class TitleChipsDelegate(QStyledItemDelegate):
         left = opt.rect.left()
         y = opt.rect.top()
         h = opt.rect.height()
-        cy = y + h // 2
+        lh = self.line_height()           # hoogte van de titelregel
+        cy = y + lh // 2                  # bullet/titel uitlijnen op de titelregel
 
         has_children = bool(opt.state & QStyle.StateFlag.State_Children)
         expanded = bool(opt.state & QStyle.StateFlag.State_Open)
@@ -149,7 +162,7 @@ class TitleChipsDelegate(QStyledItemDelegate):
         painter.setPen(QPen(text_color))
 
         tw = fm.horizontalAdvance(title)
-        painter.drawText(QRect(x, y, tw + 4, h), Qt.AlignmentFlag.AlignVCenter, title)
+        painter.drawText(QRect(x, y, tw + 4, lh), Qt.AlignmentFlag.AlignVCenter, title)
         x += tw + 8
 
         # ----- Recurring-suffix -----
@@ -158,7 +171,7 @@ class TitleChipsDelegate(QStyledItemDelegate):
             painter.setFont(QFont(opt.font))
             painter.setPen(QPen(QColor(pal["text_dim"])))
             sw = painter.fontMetrics().horizontalAdvance(suffix)
-            painter.drawText(QRect(x, y, sw + 4, h), Qt.AlignmentFlag.AlignVCenter, suffix)
+            painter.drawText(QRect(x, y, sw + 4, lh), Qt.AlignmentFlag.AlignVCenter, suffix)
             x += sw + 8
 
         # ----- Context-chips -----
@@ -175,14 +188,30 @@ class TitleChipsDelegate(QStyledItemDelegate):
             painter.drawText(QRect(x, chip_y, cw, CHIP_H), Qt.AlignmentFlag.AlignCenter, name)
             x += cw + CHIP_GAP
 
+        # ----- Omschrijving (tweede regel) -----
+        desc = self._description(index)
+        if desc:
+            desc = desc.splitlines()[0]
+            painter.setFont(QFont(opt.font))
+            painter.setPen(QPen(QColor(pal["text_dim"])))
+            dfm = painter.fontMetrics()
+            dx = left + LEFT_PAD
+            dw = max(0, opt.rect.right() - dx - 6)
+            drect = QRect(dx, y + lh, dw, h - lh)
+            elided = dfm.elidedText(desc, Qt.TextElideMode.ElideRight, dw)
+            painter.drawText(drect, Qt.AlignmentFlag.AlignVCenter, elided)
+
         painter.restore()
 
     def updateEditorGeometry(self, editor, option, index):
-        # Schuif de inline-editor voorbij chevron + bullet zodat tekst niet overlapt.
+        # Schuif de inline-editor voorbij chevron + bullet, beperkt tot de titelregel.
         rect = QRect(option.rect)
         rect.setLeft(option.rect.left() + LEFT_PAD)
+        rect.setHeight(self.line_height())
         editor.setGeometry(rect)
 
     def sizeHint(self, option, index):
-        row_h = max(option.fontMetrics.height() + self.spacing, CHIP_H + 10)
-        return QSize(option.rect.width(), row_h)
+        h = self.line_height()
+        if self._description(index):
+            h += QFontMetrics(self._tree.font()).height() + 4
+        return QSize(option.rect.width(), h)

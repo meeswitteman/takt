@@ -2,16 +2,17 @@ import os
 import webbrowser
 from pathlib import Path
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QApplication,
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QMenu, QLabel,
+    QPlainTextEdit, QFrame,
 )
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from app import client
 from app.delegates import (
     TitleChipsDelegate, ITEM_DATA_ROLE, ITEM_ID_ROLE, ITEM_LOADED,
-    ITEM_PENDING, CHEVRON_W, BULLET_W,
+    ITEM_PENDING, CHEVRON_W, BULLET_W, LEFT_PAD,
 )
 from app.dialogs import (
     DoneDialog, ContextAssignDialog, RecurringDialog, VariationAssignDialog,
@@ -21,37 +22,125 @@ from app.dialogs import (
 INDENT = 28   # pixels per niveau
 
 
+class NoteEditor(QPlainTextEdit):
+    """Zwevende meerregelige editor voor de omschrijving, onder een item."""
+    committed = pyqtSignal()
+    cancelled = pyqtSignal()
+    lostFocus = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setPlaceholderText("Omschrijving…  (Ctrl/Cmd+Enter = opslaan, Esc = annuleren)")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if e.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                                | Qt.KeyboardModifier.MetaModifier):
+                self.committed.emit()
+                return
+            # gewone Enter = nieuwe regel (meerregelig)
+        elif e.key() == Qt.Key.Key_Escape:
+            self.cancelled.emit()
+            return
+        super().keyPressEvent(e)
+
+    def focusOutEvent(self, e):
+        super().focusOutEvent(e)
+        self.lostFocus.emit()
+
+
 class OutlineTree(QTreeWidget):
-    """QTreeWidget met Workflowy-gedrag: klik op de bullet, Enter = nieuwe regel."""
-    bulletClicked = pyqtSignal(object)
-    enterPressed  = pyqtSignal()
-    emptyClicked  = pyqtSignal()
+    """QTreeWidget met Workflowy-gedrag: klik op de bullet, Enter = nieuwe regel.
+
+    Klik-zones per rij: chevron (uitklappen), bullet (inzoomen), naam (1 klik =
+    bewerken, dubbelklik = volledig dialoog) en — als de omschrijving zichtbaar
+    is — de omschrijvingsregel (1 klik = omschrijving bewerken).
+    """
+    bulletClicked     = pyqtSignal(object)
+    enterPressed      = pyqtSignal()
+    emptyClicked      = pyqtSignal()
+    nameClicked       = pyqtSignal(object)
+    nameDoubleClicked = pyqtSignal(object)
+    descClicked       = pyqtSignal(object)
+    descEditRequested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pending_item = None
+        self._click_timer = QTimer(self)
+        self._click_timer.setSingleShot(True)
+        self._click_timer.timeout.connect(self._fire_name_click)
+
+    def _fire_name_click(self):
+        if self._pending_item is not None:
+            item, self._pending_item = self._pending_item, None
+            self.nameClicked.emit(item)
+
+    def _zone(self, item, pos) -> str:
+        rect = self.visualItemRect(item)
+        left = rect.left()
+        x, y = pos.x(), pos.y()
+        if left <= x < left + CHEVRON_W:
+            return "chevron"
+        if left + CHEVRON_W <= x < left + CHEVRON_W + BULLET_W:
+            return "bullet"
+        if x >= left + CHEVRON_W + BULLET_W:
+            deleg = self.itemDelegate()
+            data = item.data(0, ITEM_DATA_ROLE) or {}
+            has_desc = (getattr(deleg, "show_descriptions", False)
+                        and bool((data.get("description") or "").strip()))
+            if has_desc and y >= rect.top() + deleg.line_height():
+                return "desc"
+            return "name"
+        return "other"
 
     def mousePressEvent(self, e):
+        self._click_timer.stop()
         item = self.itemAt(e.pos())
-        if item is not None:
-            left = self.visualItemRect(item).left()
-            x = e.pos().x()
-            # Chevron-zone → in-/uitklappen
-            if left <= x < left + CHEVRON_W:
-                data = item.data(0, ITEM_DATA_ROLE)
-                if (data and data.get("has_children")) or item.childCount() > 0:
-                    item.setExpanded(not item.isExpanded())
-                return
-            # Bullet-zone → inzoomen
-            if left + CHEVRON_W <= x < left + CHEVRON_W + BULLET_W:
-                self.setCurrentItem(item)
-                self.bulletClicked.emit(item)
-                return
-            super().mousePressEvent(e)
-        else:
+        if item is None:
             super().mousePressEvent(e)
             self.emptyClicked.emit()
+            return
+        zone = self._zone(item, e.pos())
+        if zone == "chevron":
+            data = item.data(0, ITEM_DATA_ROLE)
+            if (data and data.get("has_children")) or item.childCount() > 0:
+                item.setExpanded(not item.isExpanded())
+            return
+        if zone == "bullet":
+            self.setCurrentItem(item)
+            self.bulletClicked.emit(item)
+            return
+        if zone == "desc":
+            self.setCurrentItem(item)
+            self.descClicked.emit(item)
+            return
+        if zone == "name" and e.button() == Qt.MouseButton.LeftButton:
+            # Uitstellen zodat een dubbelklik (volledig dialoog) voorrang krijgt.
+            self.setCurrentItem(item)
+            self._pending_item = item
+            self._click_timer.start(QApplication.doubleClickInterval())
+            return
+        super().mousePressEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        item = self.itemAt(e.pos())
+        if item is not None and self._zone(item, e.pos()) == "name":
+            self._click_timer.stop()
+            self._pending_item = None
+            self.nameDoubleClicked.emit(item)
+            return
+        super().mouseDoubleClickEvent(e)
 
     def keyPressEvent(self, e):
         if (e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
                 and self.state() != QAbstractItemView.State.EditingState):
-            self.enterPressed.emit()
+            if e.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                                | Qt.KeyboardModifier.MetaModifier):
+                self.descEditRequested.emit()   # Ctrl/Cmd+Enter = omschrijving bewerken
+            else:
+                self.enterPressed.emit()        # Enter = nieuwe regel
             return
         super().keyPressEvent(e)
 
@@ -65,6 +154,8 @@ class ProjectsTab(QWidget):
         self._zoom_path: list[tuple[int, str]] = []
         self._suppress = False        # onderdruk itemChanged tijdens programmatische updates
         self._pending_node: QTreeWidgetItem | None = None
+        self._note_editor: NoteEditor | None = None
+        self._note_node: QTreeWidgetItem | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -87,7 +178,7 @@ class ProjectsTab(QWidget):
         self.tree.setItemDelegate(self._delegate)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.setUniformRowHeights(True)
+        self.tree.setUniformRowHeights(False)   # rijen kunnen een omschrijvingsregel hebben
         self.tree.setAnimated(False)
         self.tree.setExpandsOnDoubleClick(False)
         self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -95,12 +186,15 @@ class ProjectsTab(QWidget):
 
         # Signalen
         self.tree.itemExpanded.connect(self._on_expanded)
-        self.tree.itemDoubleClicked.connect(self._on_double_click)
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemChanged.connect(self._on_item_changed)
         self.tree.bulletClicked.connect(self._zoom_into)
         self.tree.enterPressed.connect(self._new_sibling)
         self.tree.emptyClicked.connect(self._new_at_current_level)
+        self.tree.nameClicked.connect(self._edit_name_node)
+        self.tree.nameDoubleClicked.connect(self._open_edit_dialog)
+        self.tree.descClicked.connect(self._edit_description)
+        self.tree.descEditRequested.connect(self._edit_description_selected)
         self._delegate.closeEditor.connect(self._on_close_editor)
 
         # Sneltoetsen
@@ -131,7 +225,7 @@ class ProjectsTab(QWidget):
 
     @property
     def _filtered(self) -> bool:
-        """Gefilterde boom-modus: context-filter of 'verberg gedaan' actief."""
+        """Gefilterde boom-modus: context-filter actief of gedane items verborgen."""
         return bool(self._active_ctx_ids) or self._hide_done
 
     def _load(self):
@@ -290,13 +384,66 @@ class ProjectsTab(QWidget):
         if node:
             self.tree.editItem(node, 0)
 
-    def _on_double_click(self, node: QTreeWidgetItem, _col: int):
+    def _edit_name_node(self, node: QTreeWidgetItem):
+        if node is not None:
+            self.tree.editItem(node, 0)
+
+    # ------------------------------------------------------------------
+    # Omschrijving inline bewerken (zwevende editor onder het item)
+    # ------------------------------------------------------------------
+
+    def set_show_descriptions(self, show: bool):
+        self._delegate.show_descriptions = show
+        self._close_note_editor(commit=False)
+        self.tree.scheduleDelayedItemsLayout()
+        self.tree.viewport().update()
+
+    def _edit_description_selected(self):
+        node = self._selected_node()
+        if node is not None:
+            self._edit_description(node)
+
+    def _edit_description(self, node: QTreeWidgetItem):
+        self._close_note_editor(commit=False)
         data = node.data(0, ITEM_DATA_ROLE) or {}
-        is_leaf = not (data.get("has_children") or node.childCount() > 0)
-        if is_leaf:
-            self._open_edit_dialog(node)   # leaf → Item bewerken
-        else:
-            self.tree.editItem(node, 0)    # parent → inline hernoemen
+        rect = self.tree.visualItemRect(node)
+        if not rect.isValid():
+            return
+        ed = NoteEditor(self.tree.viewport())
+        ed.setPlainText(data.get("description") or "")
+        dx = rect.left() + LEFT_PAD
+        top = rect.top() + self._delegate.line_height()
+        width = max(160, self.tree.viewport().width() - dx - 8)
+        ed.setGeometry(dx, top, width, 84)
+        ed.committed.connect(lambda: self._close_note_editor(commit=True))
+        ed.cancelled.connect(lambda: self._close_note_editor(commit=False))
+        ed.lostFocus.connect(lambda: self._close_note_editor(commit=True))
+        self._note_editor = ed
+        self._note_node = node
+        ed.show()
+        ed.setFocus()
+        ed.moveCursor(ed.textCursor().MoveOperation.End)
+
+    def _close_note_editor(self, commit: bool):
+        ed, node = self._note_editor, self._note_node
+        if ed is None:
+            return
+        self._note_editor = None
+        self._note_node = None
+        text = ed.toPlainText().strip()
+        ed.deleteLater()
+        if not commit or node is None:
+            return
+        old = ((node.data(0, ITEM_DATA_ROLE) or {}).get("description") or "").strip()
+        if text == old:
+            return
+        try:
+            updated = client.update_item(node.data(0, ITEM_ID_ROLE), description=text or None)
+            self._apply_data(node, updated)
+            self.tree.scheduleDelayedItemsLayout()
+            self.tree.viewport().update()
+        except Exception as e:
+            show_error(str(e), self)
 
     def _on_item_changed(self, node: QTreeWidgetItem, _col: int):
         if self._suppress:

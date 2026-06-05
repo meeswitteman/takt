@@ -134,17 +134,19 @@ class MultiSelectDropdown(QPushButton):
 class FilterBar(QWidget):
     # context_ids, root_ids, hide_done
     filter_changed = pyqtSignal(list, list, bool)
+    show_descriptions_changed = pyqtSignal(bool)
 
     def __init__(self, initial_ctx_ids: list[int] | None = None,
                  initial_root_ids: list[int] | None = None,
-                 initial_hide_done: bool = False, parent=None):
+                 initial_show_done: bool = True,
+                 initial_show_descriptions: bool = False, parent=None):
         super().__init__(parent)
         self.setStyleSheet(_BAR_STYLE)
         self._initial_ctx = list(initial_ctx_ids or [])
         self._initial_roots = list(initial_root_ids or [])
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setContentsMargins(6, 0, 6, 0)
         lay.setSpacing(8)
 
         self._ctx = MultiSelectDropdown("Context")
@@ -154,12 +156,17 @@ class FilterBar(QWidget):
         lay.addWidget(self._ctx)
         lay.addWidget(self._proj)
 
-        self._hide_done = QCheckBox("verberg gedaan")
-        self._hide_done.setChecked(initial_hide_done)
-        self._hide_done.toggled.connect(lambda _: self._emit())
-        lay.addWidget(self._hide_done)
+        self._done = QCheckBox("done")   # aangevinkt = gedane items tonen
+        self._done.setChecked(initial_show_done)
+        self._done.toggled.connect(lambda _: self._emit())
+        lay.addWidget(self._done)
 
-        lay.addStretch()
+        self._show_desc = QCheckBox("toon omschrijving")
+        self._show_desc.setChecked(initial_show_descriptions)
+        self._show_desc.toggled.connect(
+            lambda checked: self.show_descriptions_changed.emit(checked)
+        )
+        lay.addWidget(self._show_desc)
 
         clear = QPushButton("Filter wissen")
         clear.setObjectName("filter-clear")
@@ -183,8 +190,8 @@ class FilterBar(QWidget):
             self._initial_ctx = []
             self._initial_roots = []
 
-    def set_hide_done_enabled(self, enabled: bool):
-        self._hide_done.setEnabled(enabled)
+    def set_done_enabled(self, enabled: bool):
+        self._done.setEnabled(enabled)
 
     def clear_filter(self):
         self._ctx.set_selection([])
@@ -204,4 +211,8 @@ class FilterBar(QWidget):
 
     @property
     def hide_done(self) -> bool:
-        return self._hide_done.isChecked()
+        return not self._done.isChecked()
+
+    @property
+    def show_descriptions(self) -> bool:
+        return self._show_desc.isChecked()

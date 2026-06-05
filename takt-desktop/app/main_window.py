@@ -1,7 +1,7 @@
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QPushButton, QMenu, QMessageBox, QFileDialog,
-    QWidget, QVBoxLayout,
+    QWidget, QHBoxLayout,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction
@@ -31,7 +31,9 @@ class MainWindow(QMainWindow):
         self._filter_bar = FilterBar(
             initial_ctx_ids=self._settings.get("filter_context_ids", []),
             initial_root_ids=self._settings.get("filter_root_ids", []),
-            initial_hide_done=self._settings.get("filter_hide_done", False),
+            initial_show_done=self._settings.get(
+                "filter_show_done", not self._settings.get("filter_hide_done", False)),
+            initial_show_descriptions=self._settings.get("filter_show_descriptions", False),
         )
 
         self._tabs = QTabWidget()
@@ -40,21 +42,17 @@ class MainWindow(QMainWindow):
         self._tabs.addTab(self._history, "Geschiedenis")
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
-        central = QWidget()
-        col = QVBoxLayout(central)
-        col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(0)
-        col.addWidget(self._filter_bar)
-        col.addWidget(self._tabs)
-        self.setCentralWidget(central)
+        self.setCentralWidget(self._tabs)
 
         self._build_menu_button()
         self._filter_bar.filter_changed.connect(self._apply_global_filter)
+        self._filter_bar.show_descriptions_changed.connect(self._apply_show_descriptions)
 
         self._projects._delegate.spacing = self._settings.get("item_spacing", 12)
         self._update_title()
 
-        # Opgeslagen filter direct toepassen op alle schermen.
+        # Opgeslagen voorkeuren direct toepassen op alle schermen.
+        self._projects.set_show_descriptions(self._filter_bar.show_descriptions)
         self._apply_global_filter(
             self._filter_bar.context_ids,
             self._filter_bar.root_ids,
@@ -95,15 +93,23 @@ class MainWindow(QMainWindow):
         menu.addAction(act_about)
 
         btn.setMenu(menu)
-        self._tabs.setCornerWidget(btn, Qt.Corner.TopRightCorner)
+
+        # Filterbalk + menu rechtsboven, op gelijke hoogte naast de tabs.
+        corner = QWidget()
+        h = QHBoxLayout(corner)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(6)
+        h.addWidget(self._filter_bar)
+        h.addWidget(btn)
+        self._tabs.setCornerWidget(corner, Qt.Corner.TopRightCorner)
 
     # ------------------------------------------------------------------
     # Navigatie
     # ------------------------------------------------------------------
 
     def _on_tab_changed(self, index: int):
-        # 'verberg gedaan' heeft geen zin op Geschiedenis (alles is gedaan).
-        self._filter_bar.set_hide_done_enabled(index != 2)
+        # 'done' heeft geen zin op Geschiedenis (alles is gedaan).
+        self._filter_bar.set_done_enabled(index != 2)
         if index == 1:
             self._todos.refresh()
         elif index == 2:
@@ -150,8 +156,13 @@ class MainWindow(QMainWindow):
         if persist:
             self._settings["filter_context_ids"] = context_ids
             self._settings["filter_root_ids"] = root_ids
-            self._settings["filter_hide_done"] = hide_done
+            self._settings["filter_show_done"] = not hide_done
             cfg.save(self._settings)
+
+    def _apply_show_descriptions(self, show: bool):
+        self._projects.set_show_descriptions(show)
+        self._settings["filter_show_descriptions"] = show
+        cfg.save(self._settings)
 
     # ------------------------------------------------------------------
     # Beheer
