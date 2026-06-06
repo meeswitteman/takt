@@ -188,8 +188,8 @@ class FilterBar(QWidget):
         self._proj = MultiSelectDropdown("Project")
         self._ctx.changed.connect(self._emit)
         self._proj.changed.connect(self._emit)
-        lay.addWidget(self._ctx)
         lay.addWidget(self._proj)
+        lay.addWidget(self._ctx)
 
         self._done = QCheckBox("done")   # aangevinkt = gedane items tonen
         self._done.setChecked(initial_show_done)
