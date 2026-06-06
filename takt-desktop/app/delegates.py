@@ -228,18 +228,19 @@ class TitleChipsDelegate(QStyledItemDelegate):
             painter.drawText(QRect(x, chip_y, cw, CHIP_H), Qt.AlignmentFlag.AlignCenter, name)
             x += cw + CHIP_GAP
 
-        # ----- Omschrijving (tweede regel) -----
+        # ----- Omschrijving (alle regels onder de naam) -----
         desc = self._description(index)
         if desc:
-            desc = desc.splitlines()[0]
             painter.setFont(QFont(opt.font))
             painter.setPen(QPen(QColor(pal["text_dim"])))
             dfm = painter.fontMetrics()
             dx = left + LEFT_PAD
             dw = max(0, opt.rect.right() - dx - 6)
-            drect = QRect(dx, y + lh, dw, h - lh)
-            elided = dfm.elidedText(desc, Qt.TextElideMode.ElideRight, dw)
-            painter.drawText(drect, Qt.AlignmentFlag.AlignVCenter, elided)
+            dh = dfm.height()
+            for i, line in enumerate(desc.splitlines()):
+                drect = QRect(dx, y + lh + i * dh, dw, dh)
+                elided = dfm.elidedText(line, Qt.TextElideMode.ElideRight, dw)
+                painter.drawText(drect, Qt.AlignmentFlag.AlignVCenter, elided)
 
         painter.restore()
 
@@ -252,6 +253,8 @@ class TitleChipsDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option, index):
         h = self.line_height()
-        if self._description(index):
-            h += QFontMetrics(self._tree.font()).height() + 4
+        desc = self._description(index)
+        if desc:
+            fm = QFontMetrics(self._tree.font())
+            h += len(desc.splitlines()) * fm.height() + 4
         return QSize(option.rect.width(), h)
