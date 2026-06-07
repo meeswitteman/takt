@@ -4,15 +4,15 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QApplication,
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QMenu, QLabel,
-    QPlainTextEdit, QFrame, QLineEdit,
+    QPlainTextEdit, QFrame, QLineEdit, QToolTip,
 )
-from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QTimer, QEvent, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QShortcut
 
 from app import client
 from app.delegates import (
     TitleChipsDelegate, ITEM_DATA_ROLE, ITEM_ID_ROLE, ITEM_LOADED,
-    ITEM_PENDING, CHEVRON_W, BULLET_W, LEFT_PAD,
+    ITEM_PENDING, CHEVRON_W, BULLET_W, LEFT_PAD, src_icon_rect,
 )
 from app.dialogs import (
     DoneDialog, ContextAssignDialog, RecurringDialog, VariationAssignDialog,
@@ -64,6 +64,7 @@ class OutlineTree(QTreeWidget):
     nameDoubleClicked = pyqtSignal(object)
     descClicked       = pyqtSignal(object)
     descEditRequested = pyqtSignal()
+    srcClicked        = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -71,6 +72,15 @@ class OutlineTree(QTreeWidget):
         self._click_timer = QTimer(self)
         self._click_timer.setSingleShot(True)
         self._click_timer.timeout.connect(self._fire_name_click)
+        self.setMouseTracking(True)   # cursor/tooltip bij hover over de bron-knop
+
+    def _src_zone(self, item, pos) -> bool:
+        data = item.data(0, ITEM_DATA_ROLE) or {}
+        if not (data.get("src") or "").strip():
+            return False
+        rect = self.visualItemRect(item)
+        icon = src_icon_rect(rect, self.itemDelegate().line_height())
+        return icon.contains(pos)
 
     def _fire_name_click(self):
         if self._pending_item is not None:
@@ -78,6 +88,8 @@ class OutlineTree(QTreeWidget):
             self.nameClicked.emit(item)
 
     def _zone(self, item, pos) -> str:
+        if self._src_zone(item, pos):
+            return "src"
         rect = self.visualItemRect(item)
         left = rect.left()
         x, y = pos.x(), pos.y()
@@ -103,6 +115,10 @@ class OutlineTree(QTreeWidget):
             self.emptyClicked.emit()
             return
         zone = self._zone(item, e.pos())
+        if zone == "src":
+            self.setCurrentItem(item)
+            self.srcClicked.emit(item)
+            return
         if zone == "chevron":
             data = item.data(0, ITEM_DATA_ROLE)
             if (data and data.get("has_children")) or item.childCount() > 0:
@@ -163,6 +179,24 @@ class OutlineTree(QTreeWidget):
 
         super().keyPressEvent(e)
 
+    def mouseMoveEvent(self, e):
+        item = self.itemAt(e.pos())
+        over_src = item is not None and self._src_zone(item, e.pos())
+        self.viewport().setCursor(
+            Qt.CursorShape.PointingHandCursor if over_src else Qt.CursorShape.ArrowCursor
+        )
+        super().mouseMoveEvent(e)
+
+    def viewportEvent(self, e):
+        if e.type() == QEvent.Type.ToolTip:
+            item = self.itemAt(e.pos())
+            if item is not None and self._src_zone(item, e.pos()):
+                src = (item.data(0, ITEM_DATA_ROLE) or {}).get("src", "")
+                QToolTip.showText(e.globalPos(), src, self.viewport())
+                return True
+            QToolTip.hideText()
+        return super().viewportEvent(e)
+
 
 class ProjectsTab(QWidget):
     def __init__(self, parent=None):
@@ -216,6 +250,7 @@ class ProjectsTab(QWidget):
         self.tree.nameDoubleClicked.connect(self._open_edit_dialog)
         self.tree.descClicked.connect(self._edit_description)
         self.tree.descEditRequested.connect(self._edit_description_selected)
+        self.tree.srcClicked.connect(self._open_src)
         self._delegate.closeEditor.connect(self._on_close_editor)
 
         # Sneltoetsen

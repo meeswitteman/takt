@@ -22,6 +22,35 @@ LEFT_PAD  = CHEVRON_W + BULLET_W   # waar de tekst begint
 BULLET_R  = 3        # straal van het gevulde bolletje
 RING_R    = 9        # diameter van de ring bij ingeklapte kinderen
 
+SRC_ICON_W   = 18    # breedte van de bron-knop rechts op de titelregel
+SRC_ICON_H   = 16
+SRC_ICON_PAD = 6     # marge tussen knop en rechterrand
+
+
+def src_icon_rect(row_rect: QRect, line_height: int) -> QRect:
+    """Rect van de klikbare bron-knop, rechts uitgelijnd op de titelregel."""
+    cy = row_rect.top() + line_height // 2
+    x = row_rect.right() - SRC_ICON_W - SRC_ICON_PAD
+    y = cy - SRC_ICON_H // 2
+    return QRect(x, y, SRC_ICON_W, SRC_ICON_H)
+
+
+def _paint_link_glyph(painter: QPainter, rect: QRect, color: QColor) -> None:
+    """Teken een link-glyph (twee gekoppelde capsules) gecentreerd in rect."""
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    pen = QPen(color, 1.3)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    c = rect.center()
+    painter.translate(c.x() + 0.5, c.y() + 0.5)
+    painter.rotate(-45)
+    w, h = 4.5, 5.0
+    painter.drawRoundedRect(QRectF(-w - 1, -h / 2, w, h), h / 2, h / 2)
+    painter.drawRoundedRect(QRectF(1, -h / 2, w, h), h / 2, h / 2)
+    painter.restore()
+
 _INTERVAL_LABELS = {
     "direct": "direct", "daily": "dagelijks", "weekly": "wekelijks",
     "weekday:0": "maandag", "weekday:1": "dinsdag", "weekday:2": "woensdag",
@@ -227,6 +256,15 @@ class TitleChipsDelegate(QStyledItemDelegate):
             painter.setPen(QColor("white"))
             painter.drawText(QRect(x, chip_y, cw, CHIP_H), Qt.AlignmentFlag.AlignCenter, name)
             x += cw + CHIP_GAP
+
+        # ----- Bron-knop (klikbaar; tooltip toont de URL) -----
+        if (data.get("src") or "").strip():
+            icon = src_icon_rect(opt.rect, lh)
+            painter.setPen(QPen(QColor(pal["border"]), 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(QRectF(icon), 3, 3)
+            glyph = text_color if selected else QColor(pal["text_dim"])
+            _paint_link_glyph(painter, icon, glyph)
 
         # ----- Omschrijving (alle regels onder de naam) -----
         desc = self._description(index)
