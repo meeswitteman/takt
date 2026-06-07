@@ -40,6 +40,11 @@ Thumbs.db
 # PyInstaller build output
 build-exe/build/
 build-exe/dist/
+build-cli/build/
+build-cli/dist/
+
+# IDE build output
+out/
 
 # Claude Code
 .claude/
